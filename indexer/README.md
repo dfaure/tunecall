@@ -20,7 +20,8 @@ cargo run -- --pdf "../<...>/NEWREAL1.PDF" --toc 6-9 --offset 16
 ```
 
 - `--toc`   the TOC pages, as 1-based scan page numbers (`6-9`, `6-9,12`).
-- `--offset` the scan page (1-based) that shows the book's printed page 1.
+- `--offset` (1-based scan page) − (printed page); 0 if they match, e.g. `15` if
+  printed page 1 is on scan page 16. May be negative.
 - `--dry-run` parse and print without writing the DB (use this to tune `--toc`).
 
 ## Known limitation (next step)

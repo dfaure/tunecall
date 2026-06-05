@@ -31,9 +31,10 @@ struct Args {
     #[arg(long)]
     toc: String,
 
-    /// Scan page (1-based) that shows the book's PRINTED page "1".
-    /// Used to map printed pages to scan pages (see the missing-pages limitation).
-    #[arg(long, default_value_t = 1)]
+    /// Page offset = (1-based scan page) minus (printed page). 0 if they match;
+    /// e.g. if printed page 1 is on scan page 16, pass 15. May be negative.
+    /// (A single offset can't handle missing pages — see the limitation above.)
+    #[arg(long, allow_hyphen_values = true, default_value_t = 0)]
     offset: i32,
 
     /// Output index DB. Default: "<pdf-stem>.db" next to the PDF.
@@ -88,10 +89,10 @@ fn parse_pages(spec: &str) -> Result<Vec<u16>> {
     Ok(pages.iter().map(|p| p - 1).collect()) // to 0-based
 }
 
-/// Map a printed page to a 0-based scan page. See the missing-pages limitation.
+/// 0-based scan page for a printed page. `offset` = (1-based scan page) − (printed page).
+/// May return a negative number (caller clamps).
 fn resolve_page(printed: i32, offset: i32) -> i32 {
-    let first0 = (offset - 1).max(0);
-    first0 + (printed - 1).max(0)
+    printed + offset - 1
 }
 
 fn main() -> Result<()> {
@@ -128,21 +129,35 @@ fn main() -> Result<()> {
         lines.extend(text.lines().map(|l| l.to_string()));
     }
 
-    // Parse and resolve to scan pages.
+    // Parse and resolve to scan pages, clamping anything outside the document.
     let parsed = toc::parse_toc(&lines);
+    let mut out_of_range = 0;
     let entries: Vec<(String, i32)> = parsed
         .iter()
-        .map(|(title, printed)| (title.clone(), resolve_page(*printed, args.offset)))
+        .map(|(title, printed)| {
+            let raw = resolve_page(*printed, args.offset);
+            let clamped = raw.clamp(0, n_pages.saturating_sub(1) as i32);
+            if raw != clamped {
+                out_of_range += 1;
+            }
+            (title.clone(), clamped)
+        })
         .collect();
 
     println!("\nparsed {} entries:", entries.len());
     for ((title, printed), (_, page0)) in parsed.iter().zip(&entries) {
         println!("  p.{printed:<4} -> scan page {:<4} {title}", page0 + 1);
     }
-    if args.offset == 1 {
+    if out_of_range > 0 {
+        eprintln!(
+            "\nwarning: {out_of_range} entries fell outside 1..={n_pages} and were clamped; \
+             check --offset."
+        );
+    }
+    if args.offset == 0 {
         println!(
-            "\nNOTE: --offset defaulted to 1. Measure the scan page showing printed page 1\n\
-             and pass it via --offset. (And see the missing-pages limitation in --help.)"
+            "\nNOTE: --offset is 0 (printed page == scan page). If that's wrong, measure the\n\
+             scan page showing printed page 1 and pass offset = scan_page - 1."
         );
     }
 
