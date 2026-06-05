@@ -1,25 +1,33 @@
 import { Button, LineEdit, ListView } from "std-widgets.slint";
 
-struct PdfData {
-    name: string,
+struct SongResult {
+    title: string,
+    subtitle: string, // "Book · p.Page"
 }
 
-component PdfRow {
-    in property <PdfData> data;
+component ResultRow {
+    in property <SongResult> data;
     callback clicked <=> touchArea.clicked;
 
     Rectangle {
         background: touchArea.has-hover ? #00000010 : transparent;
-        HorizontalLayout {
-            padding: 10px;
-            Text {
-                text: data.name;
-                wrap: word-wrap;
-                vertical-alignment: center;
+        touchArea := TouchArea {
+            VerticalLayout {
+                padding: 8px;
+                spacing: 2px;
+                Text {
+                    text: data.title;
+                    font-weight: 700;
+                    wrap: word-wrap;
+                }
+                Text {
+                    text: data.subtitle;
+                    color: gray;
+                    font-size: 16px;
+                }
             }
         }
     }
-    touchArea := TouchArea { }
 }
 
 export component AppWindow inherits Window {
@@ -28,14 +36,16 @@ export component AppWindow inherits Window {
     preferred-width: 480px;
     preferred-height: 800px;
 
-    // --- library list ---
-    in property <[PdfData]> pdfs;
+    // --- search ---
+    in property <[SongResult]> results;
     in property <string> status;
-    callback rescan();
-    callback open-pdf(int); // row index into `pdfs`
+    callback search(string);
+    callback open-result(int); // index into `results`
+    callback reimport();
 
     // --- viewer ---
     in property <bool> viewer-visible: false;
+    in property <string> viewer-title;
     in property <image> page-image;
     in property <int> page-number;
     in property <int> page-count;
@@ -44,13 +54,19 @@ export component AppWindow inherits Window {
     callback next-page();
     callback close-viewer();
 
-    // Library view
+    // Search view
     VerticalLayout {
         padding: 8px;
         spacing: 8px;
 
+        searchLineEdit := LineEdit {
+            placeholder-text: @tr("Search songs");
+            font-size: 28px;
+            edited(text) => { root.search(text); }
+        }
+
         HorizontalLayout {
-            alignment: space-between;
+            spacing: 8px;
             Text {
                 text: root.status;
                 color: gray;
@@ -59,26 +75,24 @@ export component AppWindow inherits Window {
                 horizontal-stretch: 1;
             }
             Button {
-                text: "Rescan";
-                clicked => { root.rescan(); }
+                text: "Reimport";
+                clicked => { root.reimport(); }
             }
         }
 
-        pdfListView := ListView {
+        resultsList := ListView {
             vertical-stretch: 1;
             mouse-drag-pan-enabled: true;
             horizontal-scrollbar-policy: always-off;
-            for pdf[idx] in root.pdfs : PdfRow {
-                data: pdf;
-                width: pdfListView.viewport-width;
-                clicked => {
-                    root.open-pdf(idx);
-                }
+            for result[idx] in root.results : ResultRow {
+                data: result;
+                width: resultsList.viewport-width;
+                clicked => { root.open-result(idx); }
             }
         }
     }
 
-    // Viewer overlay (covers the whole window when a PDF is open)
+    // Viewer overlay (covers the whole window when a song is open)
     if root.viewer-visible : Rectangle {
         width: root.width;
         height: root.height;
@@ -86,7 +100,7 @@ export component AppWindow inherits Window {
 
         VerticalLayout {
             padding: 8px;
-            spacing: 8px;
+            spacing: 6px;
 
             HorizontalLayout {
                 spacing: 8px;
@@ -110,6 +124,13 @@ export component AppWindow inherits Window {
                     text: "Close";
                     clicked => { root.close-viewer(); }
                 }
+            }
+
+            Text {
+                text: root.viewer-title;
+                font-weight: 700;
+                wrap: word-wrap;
+                horizontal-alignment: center;
             }
 
             if !root.viewer-error.is-empty : Text {

@@ -39,6 +39,22 @@ pub fn page_count(path: &str) -> Result<u16> {
     })
 }
 
+/// Extract every text line from the document (used to parse the master index).
+pub fn all_text_lines(path: &str) -> Result<Vec<String>> {
+    with_pdfium(|pdfium| {
+        let doc = pdfium.load_pdf_from_file(path, None)?;
+        let pages = doc.pages();
+        let mut lines = Vec::new();
+        for idx in 0..pages.len() {
+            let page = pages.get(idx)?;
+            for line in page.text()?.all().lines() {
+                lines.push(line.to_string());
+            }
+        }
+        Ok(lines)
+    })
+}
+
 /// Render the 0-based `index` page of `path`, scaled to `target_width` pixels wide.
 pub fn render_page(path: &str, index: u16, target_width: i32) -> Result<Image> {
     with_pdfium(|pdfium| {

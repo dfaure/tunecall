@@ -25,13 +25,17 @@ Android builds target `aarch64-linux-android` and use Gradle (`./gradlew build` 
 
 **UI layer** (`ui/*.slint`): Declarative Slint UI compiled at build time via `build.rs`. Uses `fluent-light` style. `app-window.slint` is the main window.
 
-**Application core** (`src/lib.rs`): `jambook_main()` is the entry point. Creates the `AppWindow`, wires up Slint callbacks (rescan, open-pdf, prev/next/close), and feeds Slint models. The UI model carries only PDF names; their paths stay in Rust (`Rc<RefCell<Vec<String>>>`, indexed by row). `android_main()` is the Android `#[no_mangle]` entry point that resolves the app-specific data dir, initializes logging-to-file and the Slint Android backend, then calls `jambook_main()`.
+**Application core** (`src/lib.rs`): `jambook_main()` is the entry point. Creates the `AppWindow`, loads the book config, runs a first-run import, and wires up Slint callbacks (search, open-result, reimport, prev/next/close). Search results are held in Rust (`Rc<RefCell<Vec<db::Song>>>`) so a clicked row maps back to a song; `pdfium_page_0based()` turns a printed page label + the book's `first_page` into a 0-based pdfium page. `android_main()` is the Android `#[no_mangle]` entry point that resolves the app-specific data dir, initializes logging-to-file and the Slint Android backend, then calls `jambook_main()`.
 
 **Storage paths** (`src/storage.rs`): Resolves `data_dir()` / `pdf_dir()` / `db_path()`. Desktop uses `dirs::data_dir()`; Android sets the base via `set_data_dir()` from `android_main`.
 
-**Database** (`src/db.rs`): `rusqlite` (bundled SQLite). `scan_and_store()` walks `pdf_dir()` for `*.pdf` and rebuilds the `pdfs` table; `list_pdfs()` reads it back.
+**Book config** (`src/config.rs`): `books.toml` (auto-created in the data dir) mapping each master-index book code to its PDF `file` and `first_page` offset. `serde` + `toml`.
 
-**PDF rendering** (`src/pdf.rs`): `pdfium-render` bound dynamically at runtime (thread-local, lazily). `page_count()` and `render_page()` rasterize a page to a `slint::Image` via `as_rgba_bytes()` (no `image` crate dependency).
+**Index parsing** (`src/index.rs`): `parse_master_index()` turns the extracted master-index text into `RawEntry`s. Splits `<title> <code> <page>` from the right, matching the code as a known case-insensitive suffix of the second-to-last token (recovers missing-space lines like `LifeRealbk1`). Unit-tested.
+
+**Database** (`src/db.rs`): `rusqlite` (bundled SQLite). `replace_songs()` rebuilds the `songs(title, book_code, printed_page)` table; `search_songs()` does a case-insensitive title `LIKE`; `song_count()` for first-run detection.
+
+**PDF rendering / text** (`src/pdf.rs`): `pdfium-render` bound dynamically at runtime (thread-local, lazily). `page_count()` and `render_page()` rasterize a page to a `slint::Image` via `as_rgba_bytes()` (no `image` crate dependency); `all_text_lines()` extracts text for the master-index import. **The fake-book PDFs are scanned images (no text layer); only `MasterIndex.PDF` has extractable text** — hence the index-based approach rather than parsing the books or OCR.
 
 **Binary entry** (`src/bin/main.rs`): Sets up stderr logging via `flexi_logger` and calls `jambook_main()`. Only built on desktop (the `with-binary` feature, on by default).
 
@@ -48,7 +52,7 @@ The PDF list and rescan work without pdfium; only rendering a page needs it.
 
 - Library compiles as both `cdylib` (Android native lib) and `rlib` (desktop binary). The `with-binary` feature (default) enables the desktop binary, and is disabled for Android builds.
 - `slint` and `slint-build` are versioned dependencies (no workspace); the Android backend is selected via the `slint/backend-android-activity-06` feature from the command line / Gradle.
-- No test suite exists.
+- Tests: only the master-index parser is unit-tested (`cargo test`, in `src/index.rs`). The UI and PDF/DB layers are not.
 
 ## Platform status
 

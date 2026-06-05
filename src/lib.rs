@@ -3,11 +3,14 @@
 
 use std::cell::RefCell;
 use std::error::Error;
+use std::path::PathBuf;
 use std::rc::Rc;
 
 use slint::{Image, VecModel};
 
+mod config;
 mod db;
+mod index;
 mod pdf;
 mod storage;
 
@@ -17,6 +20,9 @@ slint::include_modules!();
 /// Width, in pixels, that PDF pages are rasterized to. The UI scales the result
 /// to fit, so this is really a quality/sharpness knob.
 const RENDER_WIDTH: i32 = 1200;
+
+/// Max search results shown at once.
+const SEARCH_LIMIT: i64 = 300;
 
 /// What's currently shown in the viewer.
 struct ViewerState {
@@ -55,38 +61,56 @@ fn android_main(app: slint::android::AndroidApp) -> Result<(), Box<dyn Error>> {
     std::process::exit(0);
 }
 
-/// Reload the PDF list from the DB into the UI model, and remember each row's
-/// path (the UI only carries names; paths stay in Rust, indexed by row).
-fn reload_list(ui: &AppWindow, paths: &Rc<RefCell<Vec<String>>>) {
-    match db::list_pdfs() {
-        Ok(entries) => {
-            let mut stored = paths.borrow_mut();
-            stored.clear();
-            let mut items = Vec::with_capacity(entries.len());
-            for entry in entries {
-                items.push(PdfData {
-                    name: entry.name.into(),
-                });
-                stored.push(entry.path);
-            }
-            let model: Rc<VecModel<PdfData>> = Rc::new(VecModel::from(items));
-            ui.set_pdfs(model.into());
-            if stored.is_empty() {
-                ui.set_status(
-                    format!(
-                        "No PDFs found. Drop .pdf files into\n{}",
-                        storage::pdf_dir().display()
-                    )
-                    .into(),
-                );
-            } else {
-                ui.set_status(format!("{} PDF(s)", stored.len()).into());
-            }
-        }
-        Err(e) => {
-            log::warn!("list_pdfs failed: {e}");
-            ui.set_status(format!("Database error: {e}").into());
-        }
+/// Locate `MasterIndex.PDF` inside the PDF folder (case-insensitive).
+fn master_index_path() -> Option<PathBuf> {
+    let dir = storage::pdf_dir();
+    std::fs::read_dir(&dir)
+        .ok()?
+        .flatten()
+        .map(|e| e.path())
+        .find(|p| {
+            p.file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.eq_ignore_ascii_case("MasterIndex.PDF"))
+        })
+}
+
+/// Parse the master index and (re)build the song table. Returns the song count.
+fn import_index(config: &config::BooksConfig) -> anyhow::Result<usize> {
+    let path = master_index_path().ok_or_else(|| {
+        anyhow::anyhow!(
+            "MasterIndex.PDF not found in {}",
+            storage::pdf_dir().display()
+        )
+    })?;
+    let lines = pdf::all_text_lines(&path.to_string_lossy())?;
+    let entries = index::parse_master_index(&lines, &config.codes());
+    let n = db::replace_songs(&entries)?;
+    Ok(n)
+}
+
+/// Status line shown when no search is active.
+fn set_idle_status(ui: &AppWindow) {
+    match db::song_count() {
+        Ok(0) => ui.set_status(
+            format!(
+                "No songs indexed. Put MasterIndex.PDF in\n{}\nand press Reimport.",
+                storage::pdf_dir().display()
+            )
+            .into(),
+        ),
+        Ok(n) => ui.set_status(format!("{n} songs indexed. Type to search.").into()),
+        Err(e) => ui.set_status(format!("Database error: {e}").into()),
+    }
+}
+
+/// 0-based pdfium page for a printed page label, given the book's first_page.
+/// Non-numeric labels (appendix pages like "A1") fall back to the book start.
+fn pdfium_page_0based(printed_page: &str, first_page: i32) -> i32 {
+    let first0 = (first_page - 1).max(0);
+    match printed_page.parse::<i32>() {
+        Ok(p) => first0 + (p - 1).max(0),
+        Err(_) => first0,
     }
 }
 
@@ -105,53 +129,133 @@ fn show_page(ui: &AppWindow, state: &ViewerState) {
     }
 }
 
+fn empty_results() -> slint::ModelRc<SongResult> {
+    Rc::new(VecModel::<SongResult>::default()).into()
+}
+
 pub fn jambook_main() -> Result<(), Box<dyn Error>> {
     std::panic::set_hook(Box::new(|info| {
         log::error!("Panic occurred: {}", info);
     }));
 
     let ui = AppWindow::new()?;
-    let paths: Rc<RefCell<Vec<String>>> = Rc::new(RefCell::new(Vec::new()));
+    let config = Rc::new(config::load_or_create().unwrap_or_else(|e| {
+        log::error!("config load failed: {e}");
+        config::BooksConfig::default()
+    }));
+    // Current search results, kept in Rust so a click can map back to the song.
+    let results: Rc<RefCell<Vec<db::Song>>> = Rc::new(RefCell::new(Vec::new()));
     let viewer: Rc<RefCell<Option<ViewerState>>> = Rc::new(RefCell::new(None));
 
-    // Initial scan + populate.
-    if let Err(e) = db::scan_and_store() {
-        log::warn!("initial scan failed: {e}");
+    // First-run import.
+    if db::song_count().unwrap_or(0) == 0 {
+        match import_index(&config) {
+            Ok(n) => log::info!("imported {n} songs from the master index"),
+            Err(e) => log::warn!("initial import failed: {e}"),
+        }
     }
-    reload_list(&ui, &paths);
+    set_idle_status(&ui);
 
-    ui.on_rescan({
+    ui.on_search({
         let ui_handle = ui.as_weak();
-        let paths = paths.clone();
-        move || {
+        let results = results.clone();
+        move |text| {
             let ui = ui_handle.unwrap();
-            match db::scan_and_store() {
-                Ok(n) => log::info!("rescan found {n} PDF(s)"),
-                Err(e) => log::warn!("rescan failed: {e}"),
+            let query = text.trim();
+            if query.is_empty() {
+                results.borrow_mut().clear();
+                ui.set_results(empty_results());
+                set_idle_status(&ui);
+                return;
             }
-            reload_list(&ui, &paths);
+            match db::search_songs(query, SEARCH_LIMIT) {
+                Ok(found) => {
+                    let items: Vec<SongResult> = found
+                        .iter()
+                        .map(|s| SongResult {
+                            title: s.title.clone().into(),
+                            subtitle: format!("{} · p.{}", s.book_code, s.printed_page).into(),
+                        })
+                        .collect();
+                    let n = items.len();
+                    ui.set_results(Rc::new(VecModel::from(items)).into());
+                    ui.set_status(if n == 0 {
+                        "No results".into()
+                    } else {
+                        format!("{n} result(s)").into()
+                    });
+                    *results.borrow_mut() = found;
+                }
+                Err(e) => {
+                    log::warn!("search failed: {e}");
+                    ui.set_status(format!("Search error: {e}").into());
+                }
+            }
         }
     });
 
-    ui.on_open_pdf({
+    ui.on_open_result({
         let ui_handle = ui.as_weak();
-        let paths = paths.clone();
+        let results = results.clone();
+        let config = config.clone();
         let viewer = viewer.clone();
-        move |index| {
+        move |idx| {
             let ui = ui_handle.unwrap();
-            let Some(path) = paths.borrow().get(index as usize).cloned() else {
+            // Copy out the song so we can drop the borrow before doing PDF work.
+            let Some((title, code, printed_page)) = results
+                .borrow()
+                .get(idx as usize)
+                .map(|s| (s.title.clone(), s.book_code.clone(), s.printed_page.clone()))
+            else {
                 return;
             };
-            log::info!("opening pdf #{index}: {path}");
-            let count = pdf::page_count(&path).unwrap_or(0);
-            let state = ViewerState {
-                path,
-                page: 0,
-                count,
+
+            let Some(book) = config.get(&code) else {
+                ui.set_status(
+                    format!(
+                        "No mapping for book '{code}'. Edit {}",
+                        config::config_path().display()
+                    )
+                    .into(),
+                );
+                return;
             };
+
+            let path = storage::pdf_dir()
+                .join(&book.file)
+                .to_string_lossy()
+                .into_owned();
+            log::info!("opening '{title}' -> {code} p.{printed_page} in {path}");
+            let count = pdf::page_count(&path).unwrap_or(0);
+            let target = pdfium_page_0based(&printed_page, book.first_page);
+            let page = target.clamp(0, count.saturating_sub(1) as i32) as u16;
+
+            ui.set_viewer_title(format!("{title} — {code} (p.{printed_page})").into());
+            let state = ViewerState { path, page, count };
             show_page(&ui, &state);
             *viewer.borrow_mut() = Some(state);
             ui.set_viewer_visible(true);
+        }
+    });
+
+    ui.on_reimport({
+        let ui_handle = ui.as_weak();
+        let results = results.clone();
+        let config = config.clone();
+        move || {
+            let ui = ui_handle.unwrap();
+            results.borrow_mut().clear();
+            ui.set_results(empty_results());
+            match import_index(&config) {
+                Ok(n) => {
+                    log::info!("reimported {n} songs");
+                    ui.set_status(format!("Imported {n} songs from the master index.").into());
+                }
+                Err(e) => {
+                    log::warn!("reimport failed: {e}");
+                    ui.set_status(format!("Import failed: {e}").into());
+                }
+            }
         }
     });
 

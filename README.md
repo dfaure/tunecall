@@ -3,18 +3,29 @@
 A personal application, built in Rust with [Slint](https://slint.rs/) for the
 user interface. Cross-platform (desktop + Android), primarily targeting Android.
 
-It scans an app-specific folder for PDF files, indexes their names in a local
-SQLite database, and lets you pick one and view its pages in-app.
+It indexes a collection of (scanned) fake-book PDFs by song title, lets you
+search for a song, and opens the matching book at the right page.
 
 ## How it works
 
-- PDFs are read from `<data-dir>/pdfs/` — created on first launch. Drop `.pdf`
-  files there and hit **Rescan** (or restart). On desktop `<data-dir>` is
+- PDFs live in `<data-dir>/pdfs/`. On desktop `<data-dir>` is
   `dirs::data_dir()/jambook` (e.g. `~/.local/share/jambook`); on Android it is
   the app-specific data path.
-- File names are stored in `<data-dir>/jambook.db` (table `pdfs`).
-- Pages are rendered with [pdfium](https://pdfium.googlesource.com/pdfium/) via
-  the `pdfium-render` crate.
+- The song index is built by parsing the text of `MasterIndex.PDF` (a master
+  index listing `Song Title  Book  Page`) into `<data-dir>/jambook.db`
+  (table `songs`). The book PDFs themselves are scanned images with no text
+  layer, so the master index is the only machine-readable source.
+- `<data-dir>/books.toml` maps each book code used in the master index to its
+  PDF file and a `first_page` offset (the viewer page that shows the book's
+  printed page 1). It is auto-created from a template on first run; **measure
+  and fill in each `first_page` once** (only `NewReal1 = 16` is known up front).
+- Searching matches song titles; picking a result opens that book's PDF at
+  `first_page + printed_page - 1`. Pages are rendered with
+  [pdfium](https://pdfium.googlesource.com/pdfium/) via `pdfium-render`.
+
+Books not listed in `MasterIndex.PDF` (e.g. *The Commercial Music Book*) are
+not indexed. Appendix pages with non-numeric labels (RealBk1 `A1`…`A13`) open
+at the book start rather than the exact page.
 
 ### pdfium library
 
