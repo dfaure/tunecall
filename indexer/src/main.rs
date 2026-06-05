@@ -59,9 +59,14 @@ struct Args {
     #[arg(long)]
     dry_run: bool,
 
-    /// Disable monotonic page-number repair (keep raw OCR pages).
+    /// Disable page-number repair (keep raw OCR pages).
     #[arg(long)]
     no_repair: bool,
+
+    /// Max deviation (in pages) from the trend before a page is treated as a
+    /// gross OCR outlier and corrected. Smaller inversions are kept as OCR'd.
+    #[arg(long, default_value_t = 20)]
+    repair_tolerance: i32,
 }
 
 /// Parse "6-9,12" (1-based) into 0-based page indices.
@@ -145,9 +150,10 @@ fn main() -> Result<()> {
     let printed_pages = if args.no_repair {
         raw_pages.clone()
     } else {
-        let (fixed, n_fixed) = repair::repair_monotonic(&raw_pages, 1, n_pages as i32);
+        let (fixed, n_fixed) =
+            repair::repair_pages(&raw_pages, 1, n_pages as i32, args.repair_tolerance);
         if n_fixed > 0 {
-            println!("repaired {n_fixed} page number(s) via monotonic interpolation");
+            println!("corrected {n_fixed} gross page-number outlier(s)");
         }
         fixed
     };
