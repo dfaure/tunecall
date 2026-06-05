@@ -20,17 +20,12 @@ pub fn bind_pdfium() -> Result<Pdfium> {
     Ok(Pdfium::new(bindings))
 }
 
-/// Render 0-based `page` of `pdf` to `out` (a `.png` path), scaled to `width` px.
-pub fn render_page_png(
-    pdfium: &Pdfium,
-    pdf: &Path,
-    page: u16,
-    width: i32,
-    out: &Path,
-) -> Result<()> {
+/// Render 0-based `page` of `pdf` to `out` (a `.png` path) at `dpi`.
+pub fn render_page_png(pdfium: &Pdfium, pdf: &Path, page: u16, dpi: i32, out: &Path) -> Result<()> {
     let doc = pdfium.load_pdf_from_file(pdf, None)?;
     let page = doc.pages().get(page)?;
-    let config = PdfRenderConfig::new().set_target_width(width.max(1));
+    // pdfium renders at 72 DPI for scale 1.0.
+    let config = PdfRenderConfig::new().scale_page_by_factor(dpi.max(1) as f32 / 72.0);
     let bitmap = page.render_with_config(&config)?;
     bitmap.as_image().save(out)?;
     Ok(())

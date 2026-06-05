@@ -25,6 +25,9 @@ cargo run -- --pdf "../<...>/NEWREAL1.PDF" --toc 6-9 --offset 16
 - `--offset` (1-based scan page) − (printed page); 0 if they match, e.g. `15` if
   printed page 1 is on scan page 16. May be negative.
 - `--dry-run` parse and print without writing the DB (use this to tune `--toc`).
+- `--dpi N` render resolution for OCR (default 400). ~400 reads best here;
+  higher can make tesseract merge the two TOC columns again.
+- `--psm N` tesseract page-segmentation mode (default 3 = auto layout).
 - `--no-repair` disable page-number repair (see below).
 - `--repair-tolerance N` how far (pages) a value may deviate from the trend
   before it's treated as a gross outlier (default 20).

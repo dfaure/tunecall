@@ -42,9 +42,9 @@ struct Args {
     #[arg(long)]
     out: Option<PathBuf>,
 
-    /// Render width in pixels for OCR (higher = sharper, slower).
-    #[arg(long, default_value_t = 2200)]
-    width: i32,
+    /// Render resolution in DPI for OCR (~400 reads best with tesseract here).
+    #[arg(long, default_value_t = 400)]
+    dpi: i32,
 
     /// tesseract language code.
     #[arg(long, default_value = "eng")]
@@ -137,7 +137,7 @@ fn main() -> Result<()> {
             continue;
         }
         let tmp = tempfile::Builder::new().suffix(".png").tempfile()?;
-        render::render_page_png(&pdfium, &args.pdf, page, args.width, tmp.path())
+        render::render_page_png(&pdfium, &args.pdf, page, args.dpi, tmp.path())
             .with_context(|| format!("rendering page {}", page + 1))?;
         let text = ocr::ocr_image(tmp.path(), &args.lang, &args.psm)
             .with_context(|| format!("OCR of page {}", page + 1))?;
