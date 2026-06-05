@@ -8,7 +8,7 @@ edition = "2024"
 [dependencies]
 # For desktop builds. For Android, the backend is switched by Cargo features
 # from the command line / Gradle (backend-android-activity-06), see README.md.
-slint = { version = "1.14", features = ["std", "compat-1-2", "backend-winit", "renderer-skia"] }
+slint = { version = "1.14", features = ["std", "compat-1-2", "backend-winit", "renderer-femtovg"] }
 flexi_logger = "0.31.2"
 log = "0.4.27"
 anyhow = "1.0.98"

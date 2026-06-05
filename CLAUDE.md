@@ -64,6 +64,7 @@ Search works without pdfium; only rendering a page needs it.
 
 - Library compiles as both `cdylib` (Android native lib) and `rlib` (desktop binary). The `with-binary` feature (default) enables the desktop binary, and is disabled for Android builds.
 - `slint` and `slint-build` are versioned dependencies (no workspace); the Android backend is selected via the `slint/backend-android-activity-06` feature from the command line / Gradle.
+- Slint uses the **FemtoVG** renderer (`renderer-femtovg`), not Skia. FemtoVG is pure Rust + OpenGL and avoids Skia's heavy native build/binary download (a real pain for the Android cross-build). PDF page rendering still uses pdfium; that is unrelated to the UI renderer.
 - Tests: `cargo test` covers the viewer's library loader (`src/db.rs`) and the indexer's TOC parser (`indexer/src/toc.rs`). UI and rendering are not tested.
 
 ## Platform status
