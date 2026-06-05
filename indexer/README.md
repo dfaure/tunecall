@@ -25,6 +25,18 @@ cargo run -- --pdf "../<...>/NEWREAL1.PDF" --toc 6-9 --offset 16
 - `--offset` (1-based scan page) − (printed page); 0 if they match, e.g. `15` if
   printed page 1 is on scan page 16. May be negative.
 - `--dry-run` parse and print without writing the DB (use this to tune `--toc`).
+- `--no-repair` disable page-number repair (see below).
+
+## Page-number repair
+
+A fake-book index is alphabetical, so its page numbers must increase in reading
+order. The indexer uses that: it keeps the longest non-decreasing run of OCR'd
+pages as trusted anchors and interpolates the rest, fixing OCR errors like
+`37, 358, 39 → 37, 38, 39`. Repaired entries are shown as `p.38 (ocr:358)` in
+the dry-run output. Pass `--no-repair` to keep the raw OCR pages.
+
+(This fixes misread *page numbers*; it does not fix the printed→scan mapping for
+scans with missing pages — that is still the `--offset` limitation above.)
 
 ## Known limitation (next step)
 

@@ -13,6 +13,7 @@
 mod db;
 mod ocr;
 mod render;
+mod repair;
 mod toc;
 
 use std::path::PathBuf;
@@ -57,6 +58,10 @@ struct Args {
     /// Parse and print entries without writing the DB.
     #[arg(long)]
     dry_run: bool,
+
+    /// Disable monotonic page-number repair (keep raw OCR pages).
+    #[arg(long)]
+    no_repair: bool,
 }
 
 /// Parse "6-9,12" (1-based) into 0-based page indices.
@@ -134,15 +139,27 @@ fn main() -> Result<()> {
         lines.extend(text.lines().map(|l| l.to_string()));
     }
 
-    // Parse and resolve to scan pages, clamping anything outside the document.
+    // Parse, repair OCR'd page numbers, then resolve to scan pages.
     let parsed = toc::parse_toc(&lines);
+    let raw_pages: Vec<i32> = parsed.iter().map(|(_, p)| *p).collect();
+    let printed_pages = if args.no_repair {
+        raw_pages.clone()
+    } else {
+        let (fixed, n_fixed) = repair::repair_monotonic(&raw_pages, 1, n_pages as i32);
+        if n_fixed > 0 {
+            println!("repaired {n_fixed} page number(s) via monotonic interpolation");
+        }
+        fixed
+    };
+
     let mut out_of_range = 0;
     let entries: Vec<(String, i32)> = parsed
         .iter()
-        .map(|(title, printed)| {
-            let raw = resolve_page(*printed, args.offset);
-            let clamped = raw.clamp(0, n_pages.saturating_sub(1) as i32);
-            if raw != clamped {
+        .zip(&printed_pages)
+        .map(|((title, _), &printed)| {
+            let scan = resolve_page(printed, args.offset);
+            let clamped = scan.clamp(0, n_pages.saturating_sub(1) as i32);
+            if scan != clamped {
                 out_of_range += 1;
             }
             (title.clone(), clamped)
@@ -150,8 +167,17 @@ fn main() -> Result<()> {
         .collect();
 
     println!("\nparsed {} entries:", entries.len());
-    for ((title, printed), (_, page0)) in parsed.iter().zip(&entries) {
-        println!("  p.{printed:<4} -> scan page {:<4} {title}", page0 + 1);
+    for (i, (title, raw)) in parsed.iter().enumerate() {
+        let printed = printed_pages[i];
+        let mark = if *raw != printed {
+            format!(" (ocr:{raw})")
+        } else {
+            String::new()
+        };
+        println!(
+            "  p.{printed:<4}{mark} -> scan {:<4} {title}",
+            entries[i].1 + 1
+        );
     }
     if out_of_range > 0 {
         eprintln!(
