@@ -1,0 +1,128 @@
+import { Button, LineEdit, ListView } from "std-widgets.slint";
+
+struct PdfData {
+    name: string,
+}
+
+component PdfRow {
+    in property <PdfData> data;
+    callback clicked <=> touchArea.clicked;
+
+    Rectangle {
+        background: touchArea.has-hover ? #00000010 : transparent;
+        HorizontalLayout {
+            padding: 10px;
+            Text {
+                text: data.name;
+                wrap: word-wrap;
+                vertical-alignment: center;
+            }
+        }
+    }
+    touchArea := TouchArea { }
+}
+
+export component AppWindow inherits Window {
+    title: "JamBook";
+    default-font-size: 20px;
+    preferred-width: 480px;
+    preferred-height: 800px;
+
+    // --- library list ---
+    in property <[PdfData]> pdfs;
+    in property <string> status;
+    callback rescan();
+    callback open-pdf(int); // row index into `pdfs`
+
+    // --- viewer ---
+    in property <bool> viewer-visible: false;
+    in property <image> page-image;
+    in property <int> page-number;
+    in property <int> page-count;
+    in property <string> viewer-error;
+    callback prev-page();
+    callback next-page();
+    callback close-viewer();
+
+    // Library view
+    VerticalLayout {
+        padding: 8px;
+        spacing: 8px;
+
+        HorizontalLayout {
+            alignment: space-between;
+            Text {
+                text: root.status;
+                color: gray;
+                wrap: word-wrap;
+                vertical-alignment: center;
+                horizontal-stretch: 1;
+            }
+            Button {
+                text: "Rescan";
+                clicked => { root.rescan(); }
+            }
+        }
+
+        pdfListView := ListView {
+            vertical-stretch: 1;
+            mouse-drag-pan-enabled: true;
+            horizontal-scrollbar-policy: always-off;
+            for pdf[idx] in root.pdfs : PdfRow {
+                data: pdf;
+                width: pdfListView.viewport-width;
+                clicked => {
+                    root.open-pdf(idx);
+                }
+            }
+        }
+    }
+
+    // Viewer overlay (covers the whole window when a PDF is open)
+    if root.viewer-visible : Rectangle {
+        width: root.width;
+        height: root.height;
+        background: white;
+
+        VerticalLayout {
+            padding: 8px;
+            spacing: 8px;
+
+            HorizontalLayout {
+                spacing: 8px;
+                Button {
+                    text: "‹ Prev";
+                    enabled: root.page-number > 1;
+                    clicked => { root.prev-page(); }
+                }
+                Text {
+                    text: "\{root.page-number} / \{root.page-count}";
+                    vertical-alignment: center;
+                    horizontal-alignment: center;
+                    horizontal-stretch: 1;
+                }
+                Button {
+                    text: "Next ›";
+                    enabled: root.page-number < root.page-count;
+                    clicked => { root.next-page(); }
+                }
+                Button {
+                    text: "Close";
+                    clicked => { root.close-viewer(); }
+                }
+            }
+
+            if !root.viewer-error.is-empty : Text {
+                text: root.viewer-error;
+                color: red;
+                wrap: word-wrap;
+            }
+
+            Image {
+                source: root.page-image;
+                image-fit: contain;
+                vertical-stretch: 1;
+            }
+        }
+    }
+}

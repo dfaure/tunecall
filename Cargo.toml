@@ -1,0 +1,42 @@
+[package]
+name = "jambook"
+version = "0.1.0"
+edition = "2024"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+# For desktop builds. For Android, the backend is switched by Cargo features
+# from the command line / Gradle (backend-android-activity-06), see README.md.
+slint = { version = "1.14", features = ["std", "compat-1-2", "backend-winit", "renderer-skia"] }
+flexi_logger = "0.31.2"
+log = "0.4.27"
+anyhow = "1.0.98"
+tracing = "0.1"
+dirs = "6"
+rusqlite = { version = "0.37.0", features = ["bundled"] }
+# In-app PDF rendering. Binds to the pdfium shared library dynamically at runtime
+# (libpdfium.so / pdfium.dll / libpdfium.dylib), so the build does not need it; see README.md.
+# default-features off drops the `image` crate dep: we read RGBA bytes from the bitmap directly.
+pdfium-render = { version = "0.8", default-features = false, features = ["pdfium_latest", "thread_safe"] }
+
+[build-dependencies]
+slint-build = "1.14"
+
+[lib]
+# https://github.com/rust-lang/cargo/issues/12260#issuecomment-2225216175 says this might create trouble on Windows...
+# cdylib = Build as a C-compatible dynamic library for Android
+# rlib = Build a Rust library for the desktop build
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "jambook"
+path = "src/bin/main.rs"
+# This allows to skip building the binary on Android (it builds, but it's useless and very slow to build)
+required-features = ["with-binary"]
+
+[features]
+default = ["with-binary"]
+with-binary = []
+
+# Strip symbols on Android: see .cargo/config.toml
