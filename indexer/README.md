@@ -50,3 +50,7 @@ soon as the scan has missing/extra pages — exactly why JamBook left the global
 master index. The robust fix (planned, behind `resolve_page` in `main.rs`) is to
 OCR the printed page number off each scanned page and build a real printed→scan
 map. OCR parsing of messy TOC layouts will also need iteration.
+
+Titles are stripped of dot-leader noise, but character-level OCR misreads
+remain (e.g. `PARIS`→`PARIG`, `ME`→`MB`). Fixing those would need fuzzy /
+dictionary matching; substring search still finds most songs.
