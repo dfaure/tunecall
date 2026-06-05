@@ -49,10 +49,10 @@ struct Args {
     #[arg(long, default_value = "eng")]
     lang: String,
 
-    /// The tesseract OCR binary (name on PATH or full path). Note: on openSUSE
-    /// the OCR engine is the `tesseract-ocr` package; `tesseract` is a game.
-    #[arg(long, default_value = "tesseract")]
-    tesseract: String,
+    /// tesseract page-segmentation mode. 3 = auto layout (handles columns),
+    /// 6 = single uniform block, 4 = single column. See `tesseract --help-psm`.
+    #[arg(long, default_value = "3")]
+    psm: String,
 
     /// Parse and print entries without writing the DB.
     #[arg(long)]
@@ -129,7 +129,7 @@ fn main() -> Result<()> {
         let tmp = tempfile::Builder::new().suffix(".png").tempfile()?;
         render::render_page_png(&pdfium, &args.pdf, page, args.width, tmp.path())
             .with_context(|| format!("rendering page {}", page + 1))?;
-        let text = ocr::ocr_image(tmp.path(), &args.lang, &args.tesseract)
+        let text = ocr::ocr_image(tmp.path(), &args.lang, &args.psm)
             .with_context(|| format!("OCR of page {}", page + 1))?;
         lines.extend(text.lines().map(|l| l.to_string()));
     }

@@ -10,7 +10,7 @@ It writes `<book>.db` next to the PDF, with the contract the viewer expects:
 
 - The tesseract OCR engine on PATH. On openSUSE: `zypper install tesseract-ocr
   tesseract-ocr-traineddata-eng` — note the `tesseract` package is an unrelated
-  *game*; the engine is `tesseract-ocr`. Override the binary with `--tesseract`.
+  *game* (its binary is `tesseract-game`); the OCR engine is `tesseract-ocr`.
 - A pdfium shared library: found next to the cwd / a parent (the jambook repo
   keeps `libpdfium.so` at its root) or installed system-wide.
 
