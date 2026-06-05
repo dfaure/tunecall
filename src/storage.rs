@@ -34,12 +34,7 @@ fn default_data_dir() -> PathBuf {
     PathBuf::from("/storage/emulated/0/Download/jambook")
 }
 
-/// Directory the user drops `.pdf` files into.
+/// Directory holding the `.pdf` books and their sibling `.db` indexes.
 pub fn pdf_dir() -> PathBuf {
     data_dir().join("pdfs")
-}
-
-/// Path of the SQLite database file.
-pub fn db_path() -> PathBuf {
-    data_dir().join("jambook.db")
 }

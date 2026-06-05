@@ -4,40 +4,52 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-JamBook is a cross-platform (desktop + Android, primarily Android) Rust application using Slint for the UI.
+JamBook is a cross-platform (desktop + Android, primarily Android) Rust app using Slint for the UI. It is the **viewer**: it searches a song index and opens the matching (scanned) fake-book PDF at the right page.
+
+The index is built by a **separate Linux-only tool** in `indexer/` (`jambook-indexer`), which OCRs each book's table of contents into a per-PDF SQLite file. See `indexer/README.md`.
+
+### Why this split
+
+The fake-book PDFs are scanned images with no text layer. An earlier approach parsed a single global `MasterIndex.PDF` and applied a per-book page offset, but a constant offset breaks whenever a scan has missing pages (every later page is off). So the index now stores the **actual** render page per song, computed offline by the indexer, and the viewer just renders it.
+
+### Shared contract
+
+Each PDF `<stem>.PDF` has a sibling `<stem>.db` (in the same folder) with:
+`songs(title TEXT, page INTEGER)`, where `page` is the **0-based page to render**.
 
 ## Build Commands
 
 ```bash
-cargo build                  # Desktop debug build
+cargo build                  # Desktop debug build (the viewer)
 cargo run                    # Run desktop app
-cargo build --release        # Release build
-
+cargo test                   # Unit tests
 cargo fmt                    # Format code
-cargo clippy -- -D warnings  # Lint (all warnings are errors)
+cargo clippy --all-targets -- -D warnings  # Lint (all warnings are errors)
+
+cd indexer && cargo run -- --help           # The OCR indexer (separate package)
 ```
 
 Pre-commit hooks enforce `cargo fmt` and `cargo clippy` on every commit.
 
-Android builds target `aarch64-linux-android` and use Gradle (`./gradlew build` from root).
+Android builds target `aarch64-linux-android` and use Gradle (`./gradlew build` from root). The `indexer/` crate is Linux-only and never part of the Android build.
 
-## Architecture
+## Architecture (viewer)
 
-**UI layer** (`ui/*.slint`): Declarative Slint UI compiled at build time via `build.rs`. Uses `fluent-light` style. `app-window.slint` is the main window.
+**UI layer** (`ui/*.slint`): Declarative Slint UI compiled at build time via `build.rs`. Uses `fluent-light` style. `app-window.slint` is the main window: a search box, a results list, and a full-window page viewer overlay.
 
-**Application core** (`src/lib.rs`): `jambook_main()` is the entry point. Creates the `AppWindow`, loads the book config, runs a first-run import, and wires up Slint callbacks (search, open-result, reimport, prev/next/close). Search results are held in Rust (`Rc<RefCell<Vec<db::Song>>>`) so a clicked row maps back to a song; `pdfium_page_0based()` turns a printed page label + the book's `first_page` into a 0-based pdfium page. `android_main()` is the Android `#[no_mangle]` entry point that resolves the app-specific data dir, initializes logging-to-file and the Slint Android backend, then calls `jambook_main()`.
+**Application core** (`src/lib.rs`): `jambook_main()` creates the `AppWindow`, loads the library, and wires up callbacks (search, open-result, reload, prev/next/close). The whole library and the current search results are held in Rust (`Rc<RefCell<Vec<db::Song>>>`) so a clicked row maps straight to its song (file + page). `android_main()` is the Android `#[no_mangle]` entry point that resolves the app-specific data dir, initializes logging-to-file and the Slint Android backend, then calls `jambook_main()`.
 
-**Storage paths** (`src/storage.rs`): Resolves `data_dir()` / `pdf_dir()` / `db_path()`. Desktop uses `dirs::data_dir()`; Android sets the base via `set_data_dir()` from `android_main`.
+**Storage paths** (`src/storage.rs`): Resolves `data_dir()` / `pdf_dir()`. Desktop uses `dirs::data_dir()`; Android sets the base via `set_data_dir()` from `android_main`.
 
-**Book config** (`src/config.rs`): `books.toml` (auto-created in the data dir) mapping each master-index book code to its PDF `file` and `first_page` offset. `serde` + `toml`.
+**Library** (`src/db.rs`): `rusqlite` (bundled SQLite), read-only. `load_library()` scans `pdf_dir()` for `<stem>.db` files with a matching `<stem>.PDF` and reads their `songs` rows; `search()` is an in-memory case-insensitive substring match over titles. Unit-tested.
 
-**Index parsing** (`src/index.rs`): `parse_master_index()` turns the extracted master-index text into `RawEntry`s. Splits `<title> <code> <page>` from the right, matching the code as a known case-insensitive suffix of the second-to-last token (recovers missing-space lines like `LifeRealbk1`). Unit-tested.
-
-**Database** (`src/db.rs`): `rusqlite` (bundled SQLite). `replace_songs()` rebuilds the `songs(title, book_code, printed_page)` table; `search_songs()` does a case-insensitive title `LIKE`; `song_count()` for first-run detection.
-
-**PDF rendering / text** (`src/pdf.rs`): `pdfium-render` bound dynamically at runtime (thread-local, lazily). `page_count()` and `render_page()` rasterize a page to a `slint::Image` via `as_rgba_bytes()` (no `image` crate dependency); `all_text_lines()` extracts text for the master-index import. **The fake-book PDFs are scanned images (no text layer); only `MasterIndex.PDF` has extractable text** — hence the index-based approach rather than parsing the books or OCR.
+**PDF rendering** (`src/pdf.rs`): `pdfium-render` bound dynamically at runtime (thread-local, lazily). `page_count()` and `render_page()` rasterize a page to a `slint::Image` via `as_rgba_bytes()` (no `image` crate dependency).
 
 **Binary entry** (`src/bin/main.rs`): Sets up stderr logging via `flexi_logger` and calls `jambook_main()`. Only built on desktop (the `with-binary` feature, on by default).
+
+## Architecture (indexer, `indexer/`)
+
+Standalone package `jambook-indexer` (not in the viewer's build). Pipeline in `src/main.rs`: render TOC page(s) with pdfium (`render.rs`) → OCR via the `tesseract` CLI (`ocr.rs`) → parse `title + printed page` (`toc.rs`, unit-tested) → map printed→scan page (`resolve_page`) → write `<stem>.db` (`db.rs`). **Current limitation:** `resolve_page` uses a single `--offset`, which doesn't handle missing pages; the planned robust fix is to OCR printed page numbers off each scanned page. Requires `tesseract` and a pdfium library at runtime.
 
 ## Runtime requirement: pdfium
 
@@ -46,15 +58,15 @@ Android builds target `aarch64-linux-android` and use Gradle (`./gradlew build` 
 - Desktop: drop a prebuilt `libpdfium.so` / `pdfium.dll` / `libpdfium.dylib` from [bblanchon/pdfium-binaries](https://github.com/bblanchon/pdfium-binaries) at the repo root (git-ignored by `*.so`), or install it system-wide.
 - Android: place `libpdfium.so` per ABI under `app/src/main/jniLibs/<abi>/` so Gradle packages it into the APK.
 
-The PDF list and rescan work without pdfium; only rendering a page needs it.
+Search works without pdfium; only rendering a page needs it.
 
 ## Key Design Notes
 
 - Library compiles as both `cdylib` (Android native lib) and `rlib` (desktop binary). The `with-binary` feature (default) enables the desktop binary, and is disabled for Android builds.
 - `slint` and `slint-build` are versioned dependencies (no workspace); the Android backend is selected via the `slint/backend-android-activity-06` feature from the command line / Gradle.
-- Tests: only the master-index parser is unit-tested (`cargo test`, in `src/index.rs`). The UI and PDF/DB layers are not.
+- Tests: `cargo test` covers the viewer's library loader (`src/db.rs`) and the indexer's TOC parser (`indexer/src/toc.rs`). UI and rendering are not tested.
 
 ## Platform status
 
-- Desktop (Linux): verified working — scan, list, and in-app rendering.
+- Desktop (Linux): viewer verified building/clippy/tests; in-app rendering verified earlier. Indexer pipeline verified up to the OCR call (needs `tesseract` installed to run fully).
 - Android: not yet built/tested. `android_main` is `#[cfg(target_os = "android")]`, so the desktop build never type-checks it; the app-specific data dir and `jniLibs` packaging still need a real NDK build to validate.

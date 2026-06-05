@@ -2,7 +2,7 @@ import { Button, LineEdit, ListView } from "std-widgets.slint";
 
 struct SongResult {
     title: string,
-    subtitle: string, // "Book · p.Page"
+    subtitle: string, // book name
 }
 
 component ResultRow {
@@ -41,7 +41,7 @@ export component AppWindow inherits Window {
     in property <string> status;
     callback search(string);
     callback open-result(int); // index into `results`
-    callback reimport();
+    callback reload();
 
     // --- viewer ---
     in property <bool> viewer-visible: false;
@@ -75,8 +75,8 @@ export component AppWindow inherits Window {
                 horizontal-stretch: 1;
             }
             Button {
-                text: "Reimport";
-                clicked => { root.reimport(); }
+                text: "Reload";
+                clicked => { root.reload(); }
             }
         }
 

@@ -3,29 +3,28 @@
 A personal application, built in Rust with [Slint](https://slint.rs/) for the
 user interface. Cross-platform (desktop + Android), primarily targeting Android.
 
-It indexes a collection of (scanned) fake-book PDFs by song title, lets you
-search for a song, and opens the matching book at the right page.
+It searches a collection of (scanned) fake-book PDFs by song title and opens
+the matching book at the right page.
+
+This repo is the **viewer**. The song index is produced offline by a separate
+Linux tool, [`indexer/`](indexer/README.md).
 
 ## How it works
 
 - PDFs live in `<data-dir>/pdfs/`. On desktop `<data-dir>` is
   `dirs::data_dir()/jambook` (e.g. `~/.local/share/jambook`); on Android it is
   the app-specific data path.
-- The song index is built by parsing the text of `MasterIndex.PDF` (a master
-  index listing `Song Title  Book  Page`) into `<data-dir>/jambook.db`
-  (table `songs`). The book PDFs themselves are scanned images with no text
-  layer, so the master index is the only machine-readable source.
-- `<data-dir>/books.toml` maps each book code used in the master index to its
-  PDF file and a `first_page` offset (the viewer page that shows the book's
-  printed page 1). It is auto-created from a template on first run; **measure
-  and fill in each `first_page` once** (only `NewReal1 = 16` is known up front).
-- Searching matches song titles; picking a result opens that book's PDF at
-  `first_page + printed_page - 1`. Pages are rendered with
-  [pdfium](https://pdfium.googlesource.com/pdfium/) via `pdfium-render`.
+- Each book `<name>.PDF` has a sibling index `<name>.db` in the same folder:
+  a SQLite file with `songs(title TEXT, page INTEGER)`, where `page` is the
+  0-based page to render. The viewer loads every such index and searches across
+  all of them.
+- Picking a result opens that book's PDF at the stored page. Pages are rendered
+  with [pdfium](https://pdfium.googlesource.com/pdfium/) via `pdfium-render`.
 
-Books not listed in `MasterIndex.PDF` (e.g. *The Commercial Music Book*) are
-not indexed. Appendix pages with non-numeric labels (RealBk1 `A1`…`A13`) open
-at the book start rather than the exact page.
+The books are scanned images with no text layer, so the per-PDF indexes are
+built by OCR'ing each book's table of contents — see `indexer/`. Storing the
+actual render page (rather than a printed page + offset) keeps the viewer
+correct even when a scan is missing pages.
 
 ### pdfium library
 

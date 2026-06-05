@@ -3,16 +3,15 @@
 
 use std::cell::RefCell;
 use std::error::Error;
-use std::path::PathBuf;
 use std::rc::Rc;
 
 use slint::{Image, VecModel};
 
-mod config;
 mod db;
-mod index;
 mod pdf;
 mod storage;
+
+use db::Song;
 
 // Include the slint-generated code
 slint::include_modules!();
@@ -22,7 +21,7 @@ slint::include_modules!();
 const RENDER_WIDTH: i32 = 1200;
 
 /// Max search results shown at once.
-const SEARCH_LIMIT: i64 = 300;
+const SEARCH_LIMIT: usize = 300;
 
 /// What's currently shown in the viewer.
 struct ViewerState {
@@ -61,56 +60,34 @@ fn android_main(app: slint::android::AndroidApp) -> Result<(), Box<dyn Error>> {
     std::process::exit(0);
 }
 
-/// Locate `MasterIndex.PDF` inside the PDF folder (case-insensitive).
-fn master_index_path() -> Option<PathBuf> {
-    let dir = storage::pdf_dir();
-    std::fs::read_dir(&dir)
-        .ok()?
-        .flatten()
-        .map(|e| e.path())
-        .find(|p| {
-            p.file_name()
-                .and_then(|n| n.to_str())
-                .is_some_and(|n| n.eq_ignore_ascii_case("MasterIndex.PDF"))
-        })
-}
-
-/// Parse the master index and (re)build the song table. Returns the song count.
-fn import_index(config: &config::BooksConfig) -> anyhow::Result<usize> {
-    let path = master_index_path().ok_or_else(|| {
-        anyhow::anyhow!(
-            "MasterIndex.PDF not found in {}",
-            storage::pdf_dir().display()
-        )
-    })?;
-    let lines = pdf::all_text_lines(&path.to_string_lossy())?;
-    let entries = index::parse_master_index(&lines, &config.codes());
-    let n = db::replace_songs(&entries)?;
-    Ok(n)
+/// (Re)load all per-PDF indexes into `library` and update the idle status.
+fn reload_library(ui: &AppWindow, library: &Rc<RefCell<Vec<Song>>>) {
+    match db::load_library() {
+        Ok(songs) => {
+            log::info!("loaded {} songs from per-PDF indexes", songs.len());
+            *library.borrow_mut() = songs;
+        }
+        Err(e) => {
+            log::warn!("loading library failed: {e}");
+            library.borrow_mut().clear();
+        }
+    }
+    set_idle_status(ui, library);
 }
 
 /// Status line shown when no search is active.
-fn set_idle_status(ui: &AppWindow) {
-    match db::song_count() {
-        Ok(0) => ui.set_status(
+fn set_idle_status(ui: &AppWindow, library: &Rc<RefCell<Vec<Song>>>) {
+    let n = library.borrow().len();
+    if n == 0 {
+        ui.set_status(
             format!(
-                "No songs indexed. Put MasterIndex.PDF in\n{}\nand press Reimport.",
+                "No song indexes found in\n{}\nGenerate <book>.db files with the indexer.",
                 storage::pdf_dir().display()
             )
             .into(),
-        ),
-        Ok(n) => ui.set_status(format!("{n} songs indexed. Type to search.").into()),
-        Err(e) => ui.set_status(format!("Database error: {e}").into()),
-    }
-}
-
-/// 0-based pdfium page for a printed page label, given the book's first_page.
-/// Non-numeric labels (appendix pages like "A1") fall back to the book start.
-fn pdfium_page_0based(printed_page: &str, first_page: i32) -> i32 {
-    let first0 = (first_page - 1).max(0);
-    match printed_page.parse::<i32>() {
-        Ok(p) => first0 + (p - 1).max(0),
-        Err(_) => first0,
+        );
+    } else {
+        ui.set_status(format!("{n} songs indexed. Type to search.").into());
     }
 }
 
@@ -139,25 +116,17 @@ pub fn jambook_main() -> Result<(), Box<dyn Error>> {
     }));
 
     let ui = AppWindow::new()?;
-    let config = Rc::new(config::load_or_create().unwrap_or_else(|e| {
-        log::error!("config load failed: {e}");
-        config::BooksConfig::default()
-    }));
-    // Current search results, kept in Rust so a click can map back to the song.
-    let results: Rc<RefCell<Vec<db::Song>>> = Rc::new(RefCell::new(Vec::new()));
+    // The whole library, and the current search results (clones, so a clicked
+    // row maps straight back to its song).
+    let library: Rc<RefCell<Vec<Song>>> = Rc::new(RefCell::new(Vec::new()));
+    let results: Rc<RefCell<Vec<Song>>> = Rc::new(RefCell::new(Vec::new()));
     let viewer: Rc<RefCell<Option<ViewerState>>> = Rc::new(RefCell::new(None));
 
-    // First-run import.
-    if db::song_count().unwrap_or(0) == 0 {
-        match import_index(&config) {
-            Ok(n) => log::info!("imported {n} songs from the master index"),
-            Err(e) => log::warn!("initial import failed: {e}"),
-        }
-    }
-    set_idle_status(&ui);
+    reload_library(&ui, &library);
 
     ui.on_search({
         let ui_handle = ui.as_weak();
+        let library = library.clone();
         let results = results.clone();
         move |text| {
             let ui = ui_handle.unwrap();
@@ -165,72 +134,49 @@ pub fn jambook_main() -> Result<(), Box<dyn Error>> {
             if query.is_empty() {
                 results.borrow_mut().clear();
                 ui.set_results(empty_results());
-                set_idle_status(&ui);
+                set_idle_status(&ui, &library);
                 return;
             }
-            match db::search_songs(query, SEARCH_LIMIT) {
-                Ok(found) => {
-                    let items: Vec<SongResult> = found
-                        .iter()
-                        .map(|s| SongResult {
-                            title: s.title.clone().into(),
-                            subtitle: format!("{} · p.{}", s.book_code, s.printed_page).into(),
-                        })
-                        .collect();
-                    let n = items.len();
-                    ui.set_results(Rc::new(VecModel::from(items)).into());
-                    ui.set_status(if n == 0 {
-                        "No results".into()
-                    } else {
-                        format!("{n} result(s)").into()
-                    });
-                    *results.borrow_mut() = found;
-                }
-                Err(e) => {
-                    log::warn!("search failed: {e}");
-                    ui.set_status(format!("Search error: {e}").into());
-                }
-            }
+            let lib = library.borrow();
+            let hits = db::search(&lib, query, SEARCH_LIMIT);
+            let items: Vec<SongResult> = hits
+                .iter()
+                .map(|s| SongResult {
+                    title: s.title.clone().into(),
+                    subtitle: s.book.clone().into(),
+                })
+                .collect();
+            let n = items.len();
+            ui.set_results(Rc::new(VecModel::from(items)).into());
+            ui.set_status(if n == 0 {
+                "No results".into()
+            } else {
+                format!("{n} result(s)").into()
+            });
+            *results.borrow_mut() = hits.into_iter().cloned().collect();
         }
     });
 
     ui.on_open_result({
         let ui_handle = ui.as_weak();
         let results = results.clone();
-        let config = config.clone();
         let viewer = viewer.clone();
         move |idx| {
             let ui = ui_handle.unwrap();
-            // Copy out the song so we can drop the borrow before doing PDF work.
-            let Some((title, code, printed_page)) = results
-                .borrow()
-                .get(idx as usize)
-                .map(|s| (s.title.clone(), s.book_code.clone(), s.printed_page.clone()))
-            else {
+            let Some(song) = results.borrow().get(idx as usize).cloned() else {
                 return;
             };
-
-            let Some(book) = config.get(&code) else {
-                ui.set_status(
-                    format!(
-                        "No mapping for book '{code}'. Edit {}",
-                        config::config_path().display()
-                    )
-                    .into(),
-                );
-                return;
-            };
-
-            let path = storage::pdf_dir()
-                .join(&book.file)
-                .to_string_lossy()
-                .into_owned();
-            log::info!("opening '{title}' -> {code} p.{printed_page} in {path}");
+            let path = song.file.to_string_lossy().into_owned();
+            log::info!(
+                "opening '{}' -> {} page {} ({path})",
+                song.title,
+                song.book,
+                song.page
+            );
             let count = pdf::page_count(&path).unwrap_or(0);
-            let target = pdfium_page_0based(&printed_page, book.first_page);
-            let page = target.clamp(0, count.saturating_sub(1) as i32) as u16;
+            let page = song.page.clamp(0, count.saturating_sub(1) as i32) as u16;
 
-            ui.set_viewer_title(format!("{title} — {code} (p.{printed_page})").into());
+            ui.set_viewer_title(format!("{} — {}", song.title, song.book).into());
             let state = ViewerState { path, page, count };
             show_page(&ui, &state);
             *viewer.borrow_mut() = Some(state);
@@ -238,24 +184,15 @@ pub fn jambook_main() -> Result<(), Box<dyn Error>> {
         }
     });
 
-    ui.on_reimport({
+    ui.on_reload({
         let ui_handle = ui.as_weak();
+        let library = library.clone();
         let results = results.clone();
-        let config = config.clone();
         move || {
             let ui = ui_handle.unwrap();
             results.borrow_mut().clear();
             ui.set_results(empty_results());
-            match import_index(&config) {
-                Ok(n) => {
-                    log::info!("reimported {n} songs");
-                    ui.set_status(format!("Imported {n} songs from the master index.").into());
-                }
-                Err(e) => {
-                    log::warn!("reimport failed: {e}");
-                    ui.set_status(format!("Import failed: {e}").into());
-                }
-            }
+            reload_library(&ui, &library);
         }
     });
 

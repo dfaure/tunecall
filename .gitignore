@@ -12,3 +12,6 @@ local.properties
 # build artefacts
 *.so
 **/jniLibs
+
+# indexer crate build output
+/indexer/target/

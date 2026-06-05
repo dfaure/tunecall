@@ -1,0 +1,19 @@
+[package]
+name = "jambook-indexer"
+version = "0.1.0"
+edition = "2024"
+description = "Linux-only tool: OCR a fake-book's table of contents into a per-PDF song index for JamBook"
+
+# Standalone package (NOT part of the jambook crate / Android build). Build and
+# run it from this directory: `cargo run -- --help`.
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+rusqlite = { version = "0.37", features = ["bundled"] }
+# Default features include `image`, used here to save rendered pages as PNG for OCR.
+pdfium-render = "0.8"
+# Direct dep so the PNG encoder is compiled in (feature-unified onto pdfium-render's
+# `image`); without it, DynamicImage::save(".png") fails at runtime.
+image = { version = "0.25", default-features = false, features = ["png"] }
+tempfile = "3"

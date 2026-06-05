@@ -14,9 +14,8 @@ log = "0.4.27"
 anyhow = "1.0.98"
 tracing = "0.1"
 dirs = "6"
+# Reads the per-PDF sibling index databases produced by the indexer (../indexer).
 rusqlite = { version = "0.37.0", features = ["bundled"] }
-serde = { version = "1", features = ["derive"] }
-toml = "0.8"
 # In-app PDF rendering. Binds to the pdfium shared library dynamically at runtime
 # (libpdfium.so / pdfium.dll / libpdfium.dylib), so the build does not need it; see README.md.
 # default-features off drops the `image` crate dep: we read RGBA bytes from the bitmap directly.
