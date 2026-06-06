@@ -33,8 +33,9 @@ component ResultRow {
 export component AppWindow inherits Window {
     title: "TuneCall";
     default-font-size: 20px;
-    preferred-width: 480px;
-    preferred-height: 800px;
+    // No fixed preferred-width/height: on Android they made the window size to
+    // the layout instead of filling the screen (search field hidden until a
+    // resize/maximize forced a relayout). See slint-ui/slint#11170, #5391.
 
     // --- search ---
     in property <[SongResult]> results;
