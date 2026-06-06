@@ -65,6 +65,24 @@ fn looks_like_header(s: &str) -> bool {
             u.as_str(),
             "SONG TITLE" | "SONG TITLE PAGE" | "TITLE" | "PAGE" | "CONTENTS" | "TABLE OF CONTENTS"
         )
+        || is_continuation_header(&u)
+}
+
+/// True for alphabetical section-continuation headers like `S-Cont.`, `(Cont'd)`,
+/// or `A CONTINUED` — the header atop a column that continues a letter section.
+/// These sit between songs and must break a wrap, not merge into a title.
+///
+/// `upper` is the already-uppercased line. We reduce it to ASCII alphanumerics
+/// and accept `CONT`/`CONTD`/`CONTINUED`, optionally prefixed by a single
+/// section letter (`S-CONT.` -> `SCONT`). The exact-match keeps real titles that
+/// merely start with "cont" (`CONTINENTAL`, `CONTACT`) from being dropped.
+fn is_continuation_header(upper: &str) -> bool {
+    let norm: String = upper
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .collect();
+    let is_cont = |s: &str| matches!(s, "CONT" | "CONTD" | "CONTINUED");
+    is_cont(&norm) || (norm.len() > 4 && is_cont(&norm[1..]))
 }
 
 /// Strip dot-leader OCR garbage from a TOC title.
@@ -73,7 +91,9 @@ fn looks_like_header(s: &str) -> bool {
 /// stray lowercase letters / digits (`PARIG............::ccceee`, `020`, `oo`).
 /// We cut at the first run of 2+ dots, then drop leading/trailing "junk" tokens
 /// — ones with no letters, or all-lowercase (these TOCs are uppercase, so an
-/// all-lowercase token is leader noise) — and trim trailing separators.
+/// all-lowercase token is leader noise) — and trim separators at both ends,
+/// including OCR quote/dash junk glued to the front of a title (`““Smoke`,
+/// `~——Lennie`). A leading apostrophe is kept (`'Round Midnight`).
 fn clean_title(s: &str) -> String {
     let chars: Vec<char> = s.chars().collect();
     let mut cut = chars.len();
@@ -101,6 +121,7 @@ fn clean_title(s: &str) -> String {
         toks.pop();
     }
     toks.join(" ")
+        .trim_start_matches(['"', '“', '”', '~', '–', '—', '·', '_', '-', '=', ' '])
         .trim_end_matches(['.', ':', ',', ';', '-', '·', '_', ' '])
         .trim()
         .to_string()
@@ -158,6 +179,36 @@ mod tests {
                 "THE BLUE ROOM",
                 "ISN'T IT ROMANTIGC?",
                 "AGUA DE BEBER (WATER TO DRINK)",
+            ]
+        );
+    }
+
+    #[test]
+    fn drops_section_continuation_headers() {
+        // Real OCR from realbk2h: a column-2 header "S-Cont." (S continued) sat
+        // between a song whose page OCR destroyed and the next real entry. It
+        // must break the wrap, not merge into "Smoke Gets In Your Eyes".
+        let e = parse_toc(&lines(&[
+            "Slow, Hot; Wind...... i i nc PF ; |", // page lost to OCR -> buffered
+            "S-Cont.",                             // continuation header -> clears buffer
+            "““Smoke Gets In Your Eyes..... wee cccce ecnecness 329",
+        ]));
+        assert_eq!(e, vec![("Smoke Gets In Your Eyes".to_string(), 329)]);
+    }
+
+    #[test]
+    fn strips_leading_punctuation_junk() {
+        let e = parse_toc(&lines(&[
+            "~——Lennie'’s PENNIES ....... 208",  // leading ~ and em-dashes
+            "““Smoke Gets In Your Eyes ... 329", // leading OCR quotes
+            "'Round Midnight ........ 50",       // legit leading apostrophe kept
+        ]));
+        assert_eq!(
+            e,
+            vec![
+                ("Lennie'’s PENNIES".to_string(), 208),
+                ("Smoke Gets In Your Eyes".to_string(), 329),
+                ("'Round Midnight".to_string(), 50),
             ]
         );
     }
