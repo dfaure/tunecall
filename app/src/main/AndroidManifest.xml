@@ -8,6 +8,7 @@
         android:extractNativeLibs="false"
         android:requestLegacyExternalStorage="true"
         android:allowBackup="true"
+        android:resizableActivity="false"
         android:icon="@drawable/tunecall"
         android:label="TuneCall for Android"
         android:roundIcon="@drawable/tunecall"
