@@ -15,3 +15,6 @@ local.properties
 
 # indexer crate build output
 /indexer/target/
+
+# local helper script (per-book indexer invocations)
+/indexer/index.sh
