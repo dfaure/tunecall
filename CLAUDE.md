@@ -51,6 +51,17 @@ Android builds target `aarch64-linux-android` and use Gradle (`./gradlew build` 
 
 Standalone package `tunecall-indexer` (not in the viewer's build). The scans are too degraded for reliable OCR, so the index is transcribed by reading the rendered TOC pages into a `<stem>.index` sidecar (`<printed-page> <title>` per line, next to the PDF, not in git). `src/main.rs` loads it (`index.rs`, parser unit-tested), maps each printed page to a 0-based scan page via `--offset` (`resolve_page`), drops exact-duplicate rows, and writes `<stem>.db` (`db.rs`). `render.rs` only reads the PDF page count (to validate `--offset` and clamp out-of-range entries), so a pdfium library is needed at runtime but tesseract is not. **Limitation:** a single `--offset` can't model a scan with missing/extra pages; out-of-range entries are clamped (fix the page in the `.index`). Earlier versions OCR'd via tesseract with per-book `.corrections`; that code is in the git history.
 
+### Making/redoing a `<stem>.index` (the all-vision workflow)
+
+tesseract can't read these scans, so **Claude transcribes the TOC by reading rendered images** — there is no automated OCR step. To (re)index a book:
+
+1. Render the book's TOC pages to PNGs (1-based page numbers; 600 DPI makes the small page numbers legible):
+   `pdftoppm -f <first> -l <last> -png -r 600 <book>.pdf <prefix>` → `<prefix>-NNN.png`.
+2. **Read** each PNG (the Read tool renders images) and transcribe every entry as `<printed-page><TAB-or-space><title>` into `<stem>.index` next to the PDF. Titles are reliable; the **page numbers in dense dot-leader columns are the error-prone part** — cross-check against the (mostly increasing) sequence, and remember the printed page is the small right-margin number, not a scan page.
+3. Build: `cargo run -- --pdf <book>.pdf --offset N` (per-book offsets live in the git-ignored `indexer/index.sh`; a clamp warning usually means the offset is wrong).
+
+Use `--dry-run` to preview. The `.index` and `.db` live in the data dir, never in git.
+
 ## Runtime requirement: pdfium
 
 `pdfium-render` binds to the pdfium shared library **at runtime**, not at build time. The loader (`src/pdf.rs`) tries `./libpdfium.so` (relative to the working directory) first, then the system library.
