@@ -121,6 +121,14 @@ pub fn tunecall_main() -> Result<(), Box<dyn Error>> {
     }));
 
     let ui = AppWindow::new()?;
+
+    // Create the PDF folder on first run so users have somewhere to drop books
+    // (and the indexes that Reload downloads).
+    let pdf_dir = storage::pdf_dir();
+    if let Err(e) = std::fs::create_dir_all(&pdf_dir) {
+        log::warn!("could not create {}: {e}", pdf_dir.display());
+    }
+
     // The whole library, and the current search results (clones, so a clicked
     // row maps straight back to its song).
     let library: Rc<RefCell<Vec<Song>>> = Rc::new(RefCell::new(Vec::new()));
