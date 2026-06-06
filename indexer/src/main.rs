@@ -10,6 +10,7 @@
 //! to OCR the printed page number off each scanned page and build a real
 //! printed->scan map; that lives behind `resolve_page` and is the next step.
 
+mod corrections;
 mod db;
 mod ocr;
 mod render;
@@ -193,6 +194,15 @@ fn detect_toc(
     Ok((best_start as u16..(best_start + best_len) as u16).collect())
 }
 
+/// One resolved index entry, for display and writing.
+struct Row {
+    printed: i32,
+    raw: i32, // raw OCR'd page; differs from `printed` only when repair changed it
+    title: String,
+    scan: i32, // 0-based render page
+    note: &'static str,
+}
+
 fn main() -> Result<()> {
     let args = Args::parse();
 
@@ -254,31 +264,80 @@ fn main() -> Result<()> {
         fixed
     };
 
+    // Optional per-book title corrections (sidecar next to the PDF), keyed by
+    // printed page so they survive OCR re-tuning.
+    let corrections = corrections::load(&args.pdf)?;
+
     let mut out_of_range = 0;
-    let entries: Vec<(String, i32)> = parsed
-        .iter()
-        .zip(&printed_pages)
-        .map(|((title, _), &printed)| {
-            let scan = resolve_page(printed, args.offset);
-            let clamped = scan.clamp(0, n_pages.saturating_sub(1) as i32);
-            if scan != clamped {
-                out_of_range += 1;
+    let mut to_scan = |printed: i32| {
+        let scan = resolve_page(printed, args.offset);
+        let clamped = scan.clamp(0, n_pages.saturating_sub(1) as i32);
+        if scan != clamped {
+            out_of_range += 1;
+        }
+        clamped
+    };
+
+    // Resolve each parsed entry, overriding its title if a correction matches its
+    // printed page, then append corrections for pages OCR missed entirely.
+    let mut rows: Vec<Row> = Vec::with_capacity(parsed.len() + corrections.len());
+    let mut corrected_pages = std::collections::HashSet::new();
+    let (mut n_corrected, mut n_added) = (0, 0);
+    for (i, (ocr_title, raw)) in parsed.iter().enumerate() {
+        let printed = printed_pages[i];
+        let (title, note) = match corrections.get(&printed) {
+            Some(t) => {
+                corrected_pages.insert(printed);
+                n_corrected += 1;
+                (t.clone(), " (corrected)")
             }
-            (title.clone(), clamped)
-        })
-        .collect();
+            None => (ocr_title.clone(), ""),
+        };
+        let scan = to_scan(printed);
+        rows.push(Row {
+            printed,
+            raw: *raw,
+            title,
+            scan,
+            note,
+        });
+    }
+    for (&printed, title) in &corrections {
+        if !corrected_pages.contains(&printed) {
+            n_added += 1;
+            let scan = to_scan(printed);
+            rows.push(Row {
+                printed,
+                raw: printed,
+                title: title.clone(),
+                scan,
+                note: " (added)",
+            });
+        }
+    }
+
+    let entries: Vec<(String, i32)> = rows.iter().map(|r| (r.title.clone(), r.scan)).collect();
+
+    if !corrections.is_empty() {
+        println!(
+            "applied {n_corrected} title correction(s), added {n_added} missing entr{}",
+            if n_added == 1 { "y" } else { "ies" }
+        );
+    }
 
     println!("\nparsed {} entries:", entries.len());
-    for (i, (title, raw)) in parsed.iter().enumerate() {
-        let printed = printed_pages[i];
-        let mark = if *raw != printed {
-            format!(" (ocr:{raw})")
+    for r in &rows {
+        let mark = if r.raw != r.printed {
+            format!(" (ocr:{})", r.raw)
         } else {
             String::new()
         };
         println!(
-            "  p.{printed:<4}{mark} -> scan {:<4} {title}",
-            entries[i].1 + 1
+            "  p.{:<4}{mark} -> scan {:<4} {}{}",
+            r.printed,
+            r.scan + 1,
+            r.title,
+            r.note
         );
     }
     if out_of_range > 0 {

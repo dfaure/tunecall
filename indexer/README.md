@@ -49,6 +49,25 @@ in the dry-run output. Pass `--no-repair` to keep raw OCR pages.
 (This fixes misread *page numbers*; it does not fix the printed→scan mapping for
 scans with missing pages — that is still the `--offset` limitation above.)
 
+## Title corrections
+
+Some titles are mangled by OCR beyond what the parser can repair — initialisms
+like `T.J.R.C.` have no language-model support and come out as garbage
+(`Ot > A`). Drop a sidecar `<stem>.corrections` next to the PDF/.db to override
+them:
+
+```
+# realbk3h.corrections — one "<printed-page> <title>" per line
+295 Cyclone
+296 T.J.R.C.
+```
+
+The indexer overrides the title of the entry on that **printed** page, or adds
+an entry if OCR dropped the page entirely. Keying on the printed page (not the
+garbled text) means a correction keeps working after you re-tune OCR. Blank
+lines and `#` comments are ignored; corrected/added rows are flagged in the
+dry-run output. The file lives next to the book (it is not in git).
+
 ## Known limitation (next step)
 
 Printed→scan page mapping currently uses a single `--offset`, which is wrong as
