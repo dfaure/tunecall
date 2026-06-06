@@ -305,7 +305,10 @@ fn main() -> Result<()> {
     for (&printed, title) in &corrections {
         if !corrected_pages.contains(&printed) {
             n_added += 1;
-            let scan = to_scan(printed);
+            // Added rows get a dedicated warning below (corrections::warnings),
+            // so keep them out of the generic out_of_range tally.
+            let scan =
+                resolve_page(printed, args.offset).clamp(0, n_pages.saturating_sub(1) as i32);
             rows.push(Row {
                 printed,
                 raw: printed,
@@ -339,6 +342,10 @@ fn main() -> Result<()> {
             r.title,
             r.note
         );
+    }
+    let ocr_pages: std::collections::BTreeSet<i32> = printed_pages.iter().copied().collect();
+    for w in corrections::warnings(&corrections, &ocr_pages, args.offset, n_pages as i32) {
+        eprintln!("warning: {w}");
     }
     if out_of_range > 0 {
         eprintln!(

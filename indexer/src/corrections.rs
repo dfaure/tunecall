@@ -12,7 +12,7 @@
 //! the title — which may contain spaces). Blank lines and lines starting with
 //! `#` are ignored. The file lives next to the PDF/.db, not in git.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io::ErrorKind;
 use std::path::Path;
@@ -21,6 +21,43 @@ use anyhow::{Context, Result, bail};
 
 /// Printed page number -> corrected title.
 pub type Corrections = BTreeMap<i32, String>;
+
+/// User-facing warnings for corrections that don't cleanly override an OCR'd
+/// entry. A correction whose printed page matches an OCR'd entry overrides it
+/// quietly (the intended case); the surprising ones — worth flagging — are those
+/// that matched no entry (added as a new row, often a typo'd page) or whose page
+/// resolves outside the PDF.
+///
+/// `ocr_pages` is the set of OCR'd printed pages; `offset`/`n_pages` resolve a
+/// printed page to a 0-based scan page (`printed + offset - 1`, must land in
+/// `0..n_pages`), mirroring `resolve_page` in main.
+pub fn warnings(
+    corrections: &Corrections,
+    ocr_pages: &BTreeSet<i32>,
+    offset: i32,
+    n_pages: i32,
+) -> Vec<String> {
+    let mut out = Vec::new();
+    for (&printed, title) in corrections {
+        if ocr_pages.contains(&printed) {
+            continue; // overrides an OCR'd entry — the intended, quiet case
+        }
+        let scan = printed + offset - 1;
+        if (0..n_pages).contains(&scan) {
+            out.push(format!(
+                "correction for p.{printed} ({title:?}) matched no OCR'd entry — \
+                 added as a new row (typo in the page number?)"
+            ));
+        } else {
+            out.push(format!(
+                "correction for p.{printed} ({title:?}) maps to scan page {} — outside the \
+                 PDF's 1..={n_pages}; clamped (check the page number or --offset)",
+                scan + 1
+            ));
+        }
+    }
+    out
+}
 
 /// Load `<stem>.corrections` next to `pdf`. An absent file yields an empty map.
 pub fn load(pdf: &Path) -> Result<Corrections> {
@@ -79,5 +116,26 @@ mod tests {
     fn errors_on_bad_page_or_missing_title() {
         assert!(parse("notapage Title").is_err());
         assert!(parse("296").is_err()); // no title
+    }
+
+    #[test]
+    fn warns_for_added_and_out_of_range_but_not_overrides() {
+        let mut c = Corrections::new();
+        c.insert(100, "Override Me".into()); // matches an OCR page -> quiet
+        c.insert(200, "Added Tune".into()); // no OCR entry, in range -> "added"
+        c.insert(9000, "Typo Page".into()); // no OCR entry, out of range
+        let ocr: BTreeSet<i32> = [100, 150].into_iter().collect();
+        let w = warnings(&c, &ocr, 0, 500); // offset 0 -> scan = printed - 1
+        assert_eq!(w.len(), 2); // the override is not warned about
+        assert!(
+            w[0].contains("p.200") && w[0].contains("added as a new row"),
+            "{:?}",
+            w[0]
+        );
+        assert!(
+            w[1].contains("p.9000") && w[1].contains("outside"),
+            "{:?}",
+            w[1]
+        );
     }
 }
