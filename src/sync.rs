@@ -1,6 +1,6 @@
 //! Downloads the published per-PDF indexes from the TuneCall server.
 //!
-//! Same approach as ../videofinder: plain `http://` (no TLS — it crashes on
+//! Same approach as videofinder: plain `http://` (no TLS — it crashes on
 //! Android and the server serves http), streamed to disk with `reqwest`. The
 //! caller drives this on Slint's event loop via `async-compat`.
 //!

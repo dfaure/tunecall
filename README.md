@@ -71,6 +71,8 @@ Install the PDFs like realbk1h.pdf (the name matters!) in the directory
 /storage/emulated/0/Android/data/fr.davidfaure.tunecall/files/pdfs/
 from a PC (connected via USB to your Android device)
 
+Then tap **Reload**.
+
 ### Publishing / syncing the song indexes
 
 The PDFs can't be published (copyright), but the small `.db` indexes can. The
@@ -85,7 +87,4 @@ app downloads them on demand so you don't have to re-copy them after every fix:
    `http://www.davidfaure.fr/tunecall/` into `<data-dir>/downloaded/`, then
    re-reads the library. Locally authored indexes in `pdfs/` take precedence, so
    on the authoring machine Reload won't overwrite work you haven't uploaded.
-
-Download uses plain `http://` (no TLS — same as videofinder; HTTPS misbehaves on
-Android and the server serves both).
 

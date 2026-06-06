@@ -38,5 +38,4 @@ The app is "primarily Android" but has never been built or run there.
 
 ## 3. Polish
 
-- [ ] Real app icon (still the placeholder copied from videofinder).
 - [ ] Friendlier book display names in results (currently the PDF file stem).

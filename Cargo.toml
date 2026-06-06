@@ -20,8 +20,8 @@ rusqlite = { version = "0.37.0", features = ["bundled"] }
 # (libpdfium.so / pdfium.dll / libpdfium.dylib), so the build does not need it; see README.md.
 # default-features off drops the `image` crate dep: we read RGBA bytes from the bitmap directly.
 pdfium-render = { version = "0.8", default-features = false, features = ["pdfium_latest", "thread_safe"] }
-# Downloads the published .db indexes (Reload button), same approach as
-# ../videofinder: reqwest with TLS disabled (HTTPS crashes on Android, and the
+# Downloads the published .db indexes (Reload button) using
+# reqwest with TLS disabled (HTTPS crashes on Android, and the
 # server serves plain http), driven on Slint's event loop via async-compat.
 reqwest = { version = "0.12", default-features = false, features = ["stream"] }
 async-compat = "0.2.4"
