@@ -319,8 +319,18 @@ fn main() -> Result<()> {
         }
     }
 
+    // Drop exact-duplicate rows (same title + scan page): OCR sometimes lists a
+    // song twice, and a correction then maps both copies to the same title.
+    let mut seen = std::collections::HashSet::new();
+    let n_before = rows.len();
+    rows.retain(|r| seen.insert((r.title.clone(), r.scan)));
+    let n_dupes = n_before - rows.len();
+
     let entries: Vec<(String, i32)> = rows.iter().map(|r| (r.title.clone(), r.scan)).collect();
 
+    if n_dupes > 0 {
+        println!("dropped {n_dupes} exact-duplicate row(s)");
+    }
     if !corrections.is_empty() {
         println!(
             "applied {n_corrected} title correction(s), added {n_added} missing entr{}",
