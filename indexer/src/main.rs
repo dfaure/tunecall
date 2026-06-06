@@ -16,10 +16,11 @@ mod render;
 mod repair;
 mod toc;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 use clap::Parser;
+use pdfium_render::prelude::Pdfium;
 
 #[derive(Parser)]
 #[command(about, long_about = None)]
@@ -29,8 +30,14 @@ struct Args {
     pdf: PathBuf,
 
     /// Table-of-contents pages, as 1-based scan page numbers. E.g. "6-9" or "6-9,12".
+    /// Omit and pass --detect-toc to find them automatically.
     #[arg(long)]
-    toc: String,
+    toc: Option<String>,
+
+    /// Auto-detect the TOC page range (OCR the leading pages and pick the run
+    /// of index pages). Used when --toc is not given.
+    #[arg(long)]
+    detect_toc: bool,
 
     /// Page offset = (1-based scan page) minus (printed page). 0 if they match;
     /// e.g. if printed page 1 is on scan page 16, pass 15. May be negative.
@@ -58,6 +65,11 @@ struct Args {
     /// Parse and print entries without writing the DB.
     #[arg(long)]
     dry_run: bool,
+
+    /// Dump the raw OCR lines (before parsing) to stderr. Useful for tuning the
+    /// TOC parser against a specific book's layout.
+    #[arg(long)]
+    dump_ocr: bool,
 
     /// Disable page-number repair (keep raw OCR pages).
     #[arg(long)]
@@ -110,20 +122,95 @@ fn resolve_page(printed: i32, offset: i32) -> i32 {
     printed + offset - 1
 }
 
+/// Render one 0-based page to a temp PNG, OCR it, and return its text lines.
+fn ocr_page(
+    pdfium: &Pdfium,
+    pdf: &Path,
+    page: u16,
+    dpi: i32,
+    lang: &str,
+    psm: &str,
+) -> Result<Vec<String>> {
+    let tmp = tempfile::Builder::new().suffix(".png").tempfile()?;
+    render::render_page_png(pdfium, pdf, page, dpi, tmp.path())
+        .with_context(|| format!("rendering page {}", page + 1))?;
+    let text = ocr::ocr_image(tmp.path(), lang, psm)?;
+    Ok(text.lines().map(|l| l.to_string()).collect())
+}
+
+// TOC auto-detection knobs. A TOC page has many index entries; content and
+// reference pages (e.g. chord charts) have few. Detection only looks at the
+// front of the book, where fake-book indexes live.
+const DETECT_SCAN_PAGES: u16 = 16;
+const DETECT_DPI: i32 = 300; // counts are robust at 300; faster than full --dpi
+const DETECT_MIN_ENTRIES: usize = 20;
+
+/// Auto-detect the TOC range: OCR the leading pages, count parsed entries per
+/// page, and return the longest contiguous run scoring at least the threshold
+/// (as 0-based page indices).
+fn detect_toc(
+    pdfium: &Pdfium,
+    pdf: &Path,
+    n_pages: u16,
+    lang: &str,
+    psm: &str,
+) -> Result<Vec<u16>> {
+    let scan = DETECT_SCAN_PAGES.min(n_pages);
+    let mut counts = Vec::with_capacity(scan as usize);
+    for page in 0..scan {
+        let lines = ocr_page(pdfium, pdf, page, DETECT_DPI, lang, psm)?;
+        counts.push(toc::parse_toc(&lines).len());
+    }
+    println!("TOC detection — entries per leading page: {counts:?}");
+
+    let (mut best_start, mut best_len) = (0usize, 0usize);
+    let (mut cur_start, mut cur_len) = (0usize, 0usize);
+    for (i, &c) in counts.iter().enumerate() {
+        if c >= DETECT_MIN_ENTRIES {
+            if cur_len == 0 {
+                cur_start = i;
+            }
+            cur_len += 1;
+            if cur_len > best_len {
+                best_len = cur_len;
+                best_start = cur_start;
+            }
+        } else {
+            cur_len = 0;
+        }
+    }
+    if best_len == 0 {
+        bail!(
+            "could not auto-detect a TOC in the first {scan} pages (no run of >= \
+             {DETECT_MIN_ENTRIES} entries); pass --toc explicitly"
+        );
+    }
+    println!(
+        "detected TOC: pages {}-{}",
+        best_start + 1,
+        best_start + best_len
+    );
+    Ok((best_start as u16..(best_start + best_len) as u16).collect())
+}
+
 fn main() -> Result<()> {
     let args = Args::parse();
 
     if !args.pdf.is_file() {
         bail!("no such PDF: {}", args.pdf.display());
     }
-    let toc_pages = parse_pages(&args.toc)?;
-
     let pdfium = render::bind_pdfium()?;
     let n_pages = render::page_count(&pdfium, &args.pdf)?;
+
+    let toc_pages = match &args.toc {
+        Some(spec) => parse_pages(spec)?,
+        None if args.detect_toc => detect_toc(&pdfium, &args.pdf, n_pages, &args.lang, &args.psm)?,
+        None => bail!("provide --toc <range> or --detect-toc"),
+    };
+    let toc_1based: Vec<u16> = toc_pages.iter().map(|p| p + 1).collect();
     println!(
-        "{} has {n_pages} pages; OCR'ing TOC pages {:?}",
-        args.pdf.display(),
-        &args.toc
+        "{} has {n_pages} pages; OCR'ing TOC pages {toc_1based:?}",
+        args.pdf.display()
     );
 
     // OCR each TOC page.
@@ -136,12 +223,18 @@ fn main() -> Result<()> {
             );
             continue;
         }
-        let tmp = tempfile::Builder::new().suffix(".png").tempfile()?;
-        render::render_page_png(&pdfium, &args.pdf, page, args.dpi, tmp.path())
-            .with_context(|| format!("rendering page {}", page + 1))?;
-        let text = ocr::ocr_image(tmp.path(), &args.lang, &args.psm)
-            .with_context(|| format!("OCR of page {}", page + 1))?;
-        lines.extend(text.lines().map(|l| l.to_string()));
+        lines.extend(
+            ocr_page(&pdfium, &args.pdf, page, args.dpi, &args.lang, &args.psm)
+                .with_context(|| format!("OCR of page {}", page + 1))?,
+        );
+    }
+
+    if args.dump_ocr {
+        eprintln!("---- raw OCR lines ----");
+        for (i, l) in lines.iter().enumerate() {
+            eprintln!("{i:>4}: {l:?}");
+        }
+        eprintln!("---- end raw OCR lines ----");
     }
 
     // Parse, repair OCR'd page numbers, then resolve to scan pages.

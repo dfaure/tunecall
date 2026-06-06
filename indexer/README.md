@@ -22,6 +22,9 @@ cargo run -- --pdf "../<...>/NEWREAL1.PDF" --toc 6-9 --offset 16
 ```
 
 - `--toc`   the TOC pages, as 1-based scan page numbers (`6-9`, `6-9,12`).
+- `--detect-toc` auto-detect the TOC range instead of `--toc`: OCRs the first
+  16 pages, counts index entries per page, and picks the longest run scoring
+  20+ (e.g. realbk1h → 3-8, realbk2h → 2-6). Pass `--toc` to override.
 - `--offset` (1-based scan page) − (printed page); 0 if they match, e.g. `15` if
   printed page 1 is on scan page 16. May be negative.
 - `--dry-run` parse and print without writing the DB (use this to tune `--toc`).
