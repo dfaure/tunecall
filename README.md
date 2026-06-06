@@ -1,13 +1,10 @@
 # TuneCall
 
-A personal application, built in Rust with [Slint](https://slint.rs/) for the
-user interface. Cross-platform (desktop + Android), primarily targeting Android.
 
-It searches a collection of (scanned) fake-book PDFs by song title and opens
-the matching book at the right page.
+This application lets the user search a collection of (scanned) fake-book PDFs
+by song title and opens the matching book at the right page.
 
-This repo is the **viewer**. The song index is produced offline by a separate
-Linux tool, [`indexer/`](indexer/README.md).
+The song index is produced offline by a separate tool, [`indexer/`](indexer/README.md).
 
 ## How it works
 
@@ -37,6 +34,11 @@ either install it system-wide or drop it next to the executable:
 - Android: place `libpdfium.so` for each ABI under `app/src/main/jniLibs/<abi>/`
   so Gradle packages it into the APK.
 
+### Technology
+
+This application is built in Rust with [Slint](https://slint.rs/) for the
+user interface. Cross-platform (desktop + Android), primarily targeting Android.
+
 ## Compiling
 
 ### Desktop
@@ -63,4 +65,7 @@ cargo build --lib --target aarch64-linux-android \
 
 ## Usage
 
-Only meaningful to the author, move along ;-)
+Install the PDFs like realbk1h.pdf (the name matters!) in the directory
+/storage/emulated/0/Android/data/fr.davidfaure.tunecall.slint/files/pdfs/
+from a PC (connected via USB to your Android device)
+
