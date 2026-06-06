@@ -59,6 +59,12 @@ Exact-duplicate `(title, page)` rows are dropped. An entry whose resolved page
 falls outside the PDF is clamped to the last page, with a warning — usually a
 sign `--offset` is wrong, or a stray page number to fix in the `.index`.
 
+## Publishing
+
+`./upload-indexes.sh` uploads every `<book>.db` plus an `index.txt` manifest to
+`ftp.davidfaure.fr/tunecall` (via ncftp's `davidfaure` bookmark). The app's
+**Reload** button then downloads them. See the top-level README.
+
 ## Limitation
 
 A single `--offset` can't model a scan with genuinely missing/extra pages mid-book.

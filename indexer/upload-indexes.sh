@@ -9,7 +9,7 @@
 # (so there's nothing to read here, and it copes with passive-mode FTP that
 # plain curl tripped over).
 #
-# Usage: scripts/upload-indexes.sh [pdf-dir]
+# Usage: indexer/upload-indexes.sh [pdf-dir]
 #   pdf-dir defaults to ~/.local/share/tunecall/pdfs
 set -eu
 

@@ -79,7 +79,7 @@ The PDFs can't be published (copyright), but the small `.db` indexes can. The
 app downloads them on demand so you don't have to re-copy them after every fix:
 
 1. (Re)generate the indexes with the indexer (see `indexer/`).
-2. Upload them: `scripts/upload-indexes.sh` — pushes every `<book>.db` plus an
+2. Upload them: `indexer/upload-indexes.sh` — pushes every `<book>.db` plus an
    `index.txt` manifest to `ftp.davidfaure.fr/tunecall` via ncftp's `davidfaure`
    bookmark (which stores the credentials).
 3. On any device (Android or another Linux machine), tap **Reload** — it

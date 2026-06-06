@@ -5,7 +5,7 @@
 //! caller drives this on Slint's event loop via `async-compat`.
 //!
 //! The server holds an `index.txt` manifest (one `<book>.db` per line, produced
-//! by `scripts/upload-indexes.sh`) plus the `.db` files themselves. We fetch the
+//! by `indexer/upload-indexes.sh`) plus the `.db` files themselves. We fetch the
 //! manifest, then each index into the PDF folder next to its book.
 
 use std::fs::File;
