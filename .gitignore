@@ -12,6 +12,8 @@ local.properties
 # build artefacts
 *.so
 **/jniLibs
+# scratch dir used by fetch-pdfium.sh (normally auto-removed)
+/.pdfium-download*
 
 # indexer crate build output
 /indexer/target/
