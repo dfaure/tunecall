@@ -20,3 +20,6 @@ local.properties
 
 # local helper script (per-book indexer invocations)
 /indexer/index.sh
+
+# Scratch transcription images dropped in the repo root
+/*.png
