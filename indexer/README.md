@@ -57,8 +57,8 @@ like `T.J.R.C.` have no language-model support and come out as garbage
 them:
 
 ```
-# realbk3h.corrections — one "<printed-page> <title>" per line
-295 Cyclone
+# realbk1h.corrections — one "<printed-page> <title>" per line
+39 AUTUMN LEAVES
 296 T.J.R.C.
 ```
 
@@ -67,6 +67,23 @@ an entry if OCR dropped the page entirely. Keying on the printed page (not the
 garbled text) means a correction keeps working after you re-tune OCR. Blank
 lines and `#` comments are ignored; corrected/added rows are flagged in the
 dry-run output. The file lives next to the book (it is not in git).
+
+## Full-index sidecar (all-vision)
+
+When a scan is degraded enough that OCR is useless (dense dot-leaders that eat
+the page numbers, etc.), skip tesseract entirely: drop a `<stem>.index` sidecar
+(same `<printed-page> <title>` format as `.corrections`) holding the **whole**
+TOC, transcribed by reading the rendered TOC pages directly. If `<stem>.index`
+exists, the indexer ignores OCR/`--toc`/`--detect-toc`/`.corrections` and builds
+the DB straight from it (still applying `--offset` for printed→scan):
+
+```
+pdftoppm -f 2 -l 6 -png -r 300 realbk2h.pdf toc   # render the TOC pages, read them
+# ... write realbk2h.index ...
+cargo run -- --pdf realbk2h.pdf --offset 7        # builds realbk2h.db from the sidecar
+```
+
+Like `.corrections`, it lives next to the book and is not in git.
 
 ## Known limitation (next step)
 

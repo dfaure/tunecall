@@ -59,10 +59,21 @@ pub fn warnings(
     out
 }
 
-/// Load `<stem>.corrections` next to `pdf`. An absent file yields an empty map.
+/// Load `<stem>.corrections` next to `pdf` (an overlay on OCR'd entries). An
+/// absent file yields an empty map.
 pub fn load(pdf: &Path) -> Result<Corrections> {
-    let path = pdf.with_extension("corrections");
-    match fs::read_to_string(&path) {
+    load_file(&pdf.with_extension("corrections"))
+}
+
+/// Load a full `<stem>.index` sidecar next to `pdf` — the complete printed-page
+/// -> title index, used *in place of* OCR (the all-vision path). Same format as
+/// corrections. An absent file yields an empty map.
+pub fn load_index(pdf: &Path) -> Result<Corrections> {
+    load_file(&pdf.with_extension("index"))
+}
+
+fn load_file(path: &Path) -> Result<Corrections> {
+    match fs::read_to_string(path) {
         Ok(text) => parse(&text).with_context(|| format!("in {}", path.display())),
         Err(e) if e.kind() == ErrorKind::NotFound => Ok(Corrections::new()),
         Err(e) => Err(e).context(format!("reading {}", path.display())),

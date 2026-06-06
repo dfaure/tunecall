@@ -212,110 +212,146 @@ fn main() -> Result<()> {
     let pdfium = render::bind_pdfium()?;
     let n_pages = render::page_count(&pdfium, &args.pdf)?;
 
-    let toc_pages = match &args.toc {
-        Some(spec) => parse_pages(spec)?,
-        None if args.detect_toc => detect_toc(&pdfium, &args.pdf, n_pages, &args.lang, &args.psm)?,
-        None => bail!("provide --toc <range> or --detect-toc"),
-    };
-    let toc_1based: Vec<u16> = toc_pages.iter().map(|p| p + 1).collect();
-    println!(
-        "{} has {n_pages} pages; OCR'ing TOC pages {toc_1based:?}",
-        args.pdf.display()
-    );
-
-    // OCR each TOC page.
-    let mut lines: Vec<String> = Vec::new();
-    for &page in &toc_pages {
-        if page >= n_pages {
-            eprintln!(
-                "warning: TOC page {} is past the end ({n_pages}); skipping",
-                page + 1
-            );
-            continue;
-        }
-        lines.extend(
-            ocr_page(&pdfium, &args.pdf, page, args.dpi, &args.lang, &args.psm)
-                .with_context(|| format!("OCR of page {}", page + 1))?,
-        );
-    }
-
-    if args.dump_ocr {
-        eprintln!("---- raw OCR lines ----");
-        for (i, l) in lines.iter().enumerate() {
-            eprintln!("{i:>4}: {l:?}");
-        }
-        eprintln!("---- end raw OCR lines ----");
-    }
-
-    // Parse, repair OCR'd page numbers, then resolve to scan pages.
-    let parsed = toc::parse_toc(&lines);
-    let raw_pages: Vec<i32> = parsed.iter().map(|(_, p)| *p).collect();
-    let printed_pages = if args.no_repair {
-        raw_pages.clone()
-    } else {
-        // Valid *printed* page range given the offset: printed P maps to scan
-        // page P + offset - 1 (0-based), which must land in 0..n_pages.
-        let lo = (1 - args.offset).max(1);
-        let hi = n_pages as i32 - args.offset;
-        let (fixed, n_fixed) = repair::repair_pages(&raw_pages, lo, hi, args.repair_tolerance);
-        if n_fixed > 0 {
-            println!("corrected {n_fixed} gross page-number outlier(s)");
-        }
-        fixed
-    };
-
-    // Optional per-book title corrections (sidecar next to the PDF), keyed by
-    // printed page so they survive OCR re-tuning.
-    let corrections = corrections::load(&args.pdf)?;
-
     let mut out_of_range = 0;
-    let mut to_scan = |printed: i32| {
+    // Resolve a printed page to a 0-based scan page, clamped to the PDF, counting
+    // any clamp into `oor`.
+    let resolve = |printed: i32, oor: &mut i32| -> i32 {
         let scan = resolve_page(printed, args.offset);
         let clamped = scan.clamp(0, n_pages.saturating_sub(1) as i32);
         if scan != clamped {
-            out_of_range += 1;
+            *oor += 1;
         }
         clamped
     };
 
-    // Resolve each parsed entry, overriding its title if a correction matches its
-    // printed page, then append corrections for pages OCR missed entirely.
-    let mut rows: Vec<Row> = Vec::with_capacity(parsed.len() + corrections.len());
-    let mut corrected_pages = std::collections::HashSet::new();
-    let (mut n_corrected, mut n_added) = (0, 0);
-    for (i, (ocr_title, raw)) in parsed.iter().enumerate() {
-        let printed = printed_pages[i];
-        let (title, note) = match corrections.get(&printed) {
-            Some(t) => {
-                corrected_pages.insert(printed);
-                n_corrected += 1;
-                (t.clone(), " (corrected)")
-            }
-            None => (ocr_title.clone(), ""),
-        };
-        let scan = to_scan(printed);
-        rows.push(Row {
-            printed,
-            raw: *raw,
-            title,
-            scan,
-            note,
-        });
-    }
-    for (&printed, title) in &corrections {
-        if !corrected_pages.contains(&printed) {
-            n_added += 1;
-            // Added rows get a dedicated warning below (corrections::warnings),
-            // so keep them out of the generic out_of_range tally.
-            let scan =
-                resolve_page(printed, args.offset).clamp(0, n_pages.saturating_sub(1) as i32);
+    let index_path = args.pdf.with_extension("index");
+    let mut rows: Vec<Row> = Vec::new();
+
+    if index_path.is_file() {
+        // All-vision path: the <stem>.index sidecar IS the index (printed page ->
+        // title, transcribed by vision), so skip OCR/parse/repair entirely.
+        let index = corrections::load_index(&args.pdf)?;
+        println!(
+            "{} has {n_pages} pages; using {} ({} entries, no OCR)",
+            args.pdf.display(),
+            index_path.display(),
+            index.len()
+        );
+        for (&printed, title) in &index {
+            let scan = resolve(printed, &mut out_of_range);
             rows.push(Row {
                 printed,
                 raw: printed,
                 title: title.clone(),
                 scan,
-                note: " (added)",
+                note: "",
             });
+        }
+    } else {
+        // OCR path: render + tesseract + parse + repair, then overlay corrections.
+        let toc_pages = match &args.toc {
+            Some(spec) => parse_pages(spec)?,
+            None if args.detect_toc => {
+                detect_toc(&pdfium, &args.pdf, n_pages, &args.lang, &args.psm)?
+            }
+            None => bail!("provide --toc <range> or --detect-toc (or a <stem>.index sidecar)"),
+        };
+        let toc_1based: Vec<u16> = toc_pages.iter().map(|p| p + 1).collect();
+        println!(
+            "{} has {n_pages} pages; OCR'ing TOC pages {toc_1based:?}",
+            args.pdf.display()
+        );
+
+        // OCR each TOC page.
+        let mut lines: Vec<String> = Vec::new();
+        for &page in &toc_pages {
+            if page >= n_pages {
+                eprintln!(
+                    "warning: TOC page {} is past the end ({n_pages}); skipping",
+                    page + 1
+                );
+                continue;
+            }
+            lines.extend(
+                ocr_page(&pdfium, &args.pdf, page, args.dpi, &args.lang, &args.psm)
+                    .with_context(|| format!("OCR of page {}", page + 1))?,
+            );
+        }
+
+        if args.dump_ocr {
+            eprintln!("---- raw OCR lines ----");
+            for (i, l) in lines.iter().enumerate() {
+                eprintln!("{i:>4}: {l:?}");
+            }
+            eprintln!("---- end raw OCR lines ----");
+        }
+
+        // Parse, repair OCR'd page numbers, then resolve to scan pages.
+        let parsed = toc::parse_toc(&lines);
+        let raw_pages: Vec<i32> = parsed.iter().map(|(_, p)| *p).collect();
+        let printed_pages = if args.no_repair {
+            raw_pages.clone()
+        } else {
+            // Valid *printed* page range given the offset: printed P maps to scan
+            // page P + offset - 1 (0-based), which must land in 0..n_pages.
+            let lo = (1 - args.offset).max(1);
+            let hi = n_pages as i32 - args.offset;
+            let (fixed, n_fixed) = repair::repair_pages(&raw_pages, lo, hi, args.repair_tolerance);
+            if n_fixed > 0 {
+                println!("corrected {n_fixed} gross page-number outlier(s)");
+            }
+            fixed
+        };
+
+        // Optional per-book title corrections (sidecar next to the PDF), keyed by
+        // printed page so they survive OCR re-tuning.
+        let corrections = corrections::load(&args.pdf)?;
+        let mut corrected_pages = std::collections::HashSet::new();
+        let (mut n_corrected, mut n_added) = (0, 0);
+        for (i, (ocr_title, raw)) in parsed.iter().enumerate() {
+            let printed = printed_pages[i];
+            let (title, note) = match corrections.get(&printed) {
+                Some(t) => {
+                    corrected_pages.insert(printed);
+                    n_corrected += 1;
+                    (t.clone(), " (corrected)")
+                }
+                None => (ocr_title.clone(), ""),
+            };
+            let scan = resolve(printed, &mut out_of_range);
+            rows.push(Row {
+                printed,
+                raw: *raw,
+                title,
+                scan,
+                note,
+            });
+        }
+        for (&printed, title) in &corrections {
+            if !corrected_pages.contains(&printed) {
+                n_added += 1;
+                // Added rows get a dedicated warning below (corrections::warnings),
+                // so keep them out of the generic out_of_range tally.
+                let scan =
+                    resolve_page(printed, args.offset).clamp(0, n_pages.saturating_sub(1) as i32);
+                rows.push(Row {
+                    printed,
+                    raw: printed,
+                    title: title.clone(),
+                    scan,
+                    note: " (added)",
+                });
+            }
+        }
+        if !corrections.is_empty() {
+            println!(
+                "applied {n_corrected} title correction(s), added {n_added} missing entr{}",
+                if n_added == 1 { "y" } else { "ies" }
+            );
+        }
+        let ocr_pages: std::collections::BTreeSet<i32> = printed_pages.iter().copied().collect();
+        for w in corrections::warnings(&corrections, &ocr_pages, args.offset, n_pages as i32) {
+            eprintln!("warning: {w}");
         }
     }
 
@@ -325,20 +361,13 @@ fn main() -> Result<()> {
     let n_before = rows.len();
     rows.retain(|r| seen.insert((r.title.clone(), r.scan)));
     let n_dupes = n_before - rows.len();
-
-    let entries: Vec<(String, i32)> = rows.iter().map(|r| (r.title.clone(), r.scan)).collect();
-
     if n_dupes > 0 {
         println!("dropped {n_dupes} exact-duplicate row(s)");
     }
-    if !corrections.is_empty() {
-        println!(
-            "applied {n_corrected} title correction(s), added {n_added} missing entr{}",
-            if n_added == 1 { "y" } else { "ies" }
-        );
-    }
 
-    println!("\nparsed {} entries:", entries.len());
+    let entries: Vec<(String, i32)> = rows.iter().map(|r| (r.title.clone(), r.scan)).collect();
+
+    println!("\n{} entries:", entries.len());
     for r in &rows {
         let mark = if r.raw != r.printed {
             format!(" (ocr:{})", r.raw)
@@ -352,10 +381,6 @@ fn main() -> Result<()> {
             r.title,
             r.note
         );
-    }
-    let ocr_pages: std::collections::BTreeSet<i32> = printed_pages.iter().copied().collect();
-    for w in corrections::warnings(&corrections, &ocr_pages, args.offset, n_pages as i32) {
-        eprintln!("warning: {w}");
     }
     if out_of_range > 0 {
         eprintln!(
