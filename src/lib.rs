@@ -176,7 +176,9 @@ pub fn jambook_main() -> Result<(), Box<dyn Error>> {
             let count = pdf::page_count(&path).unwrap_or(0);
             let page = song.page.clamp(0, count.saturating_sub(1) as i32) as u16;
 
-            ui.set_viewer_title(format!("{} — {}", song.title, song.book).into());
+            // Show only the book (PDF) name: the song title is in the page itself,
+            // and would be wrong once the user pages Prev/Next to another song.
+            ui.set_viewer_title(song.book.into());
             let state = ViewerState { path, page, count };
             show_page(&ui, &state);
             *viewer.borrow_mut() = Some(state);
