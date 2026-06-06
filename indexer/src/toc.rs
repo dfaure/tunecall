@@ -140,6 +140,10 @@ fn recover_page_digits(core: &str) -> Option<i32> {
 /// all-lowercase token is leader noise) — and trim separators at both ends,
 /// including OCR quote/dash junk glued to the front of a title (`““Smoke`,
 /// `~——Lennie`). A leading apostrophe is kept (`'Round Midnight`).
+///
+/// Exception: a *leading* all-digit token is kept — titles really do start with
+/// a number (`500 Miles High`, `502 Blues`). A *trailing* all-digit token is
+/// still dropped (it's leader/page noise like `020`).
 fn clean_title(s: &str) -> String {
     let chars: Vec<char> = s.chars().collect();
     let mut cut = chars.len();
@@ -161,9 +165,12 @@ fn clean_title(s: &str) -> String {
             Some(_) => letters.all(|c| c.is_lowercase()), // all-lowercase => leader noise
         }
     };
+    // A leading all-digit token is a title number ("500 Miles High"), not junk;
+    // a trailing one is leader/page noise ("ALWAYS 020") and stays junk.
+    let is_leading_junk = |t: &str| !t.bytes().all(|b| b.is_ascii_digit()) && is_junk(t);
 
     let mut toks: Vec<&str> = head.split_whitespace().collect();
-    while toks.first().is_some_and(|t| is_junk(t)) {
+    while toks.first().is_some_and(|t| is_leading_junk(t)) {
         toks.remove(0);
     }
     while toks.last().is_some_and(|t| is_junk(t)) {
@@ -200,6 +207,24 @@ mod tests {
                 ("Affirmation".to_string(), 1),
                 ("All The Things You Are".to_string(), 4),
                 ("Some Tune".to_string(), 12),
+            ]
+        );
+    }
+
+    #[test]
+    fn keeps_leading_number_in_title() {
+        // A leading number is part of the title; only trailing digit noise is cut.
+        let e = parse_toc(&lines(&[
+            "500 MILES HIGH ......... 141",
+            "502 BLUES .......... 142",
+            "52ND STREET THEME 200",
+        ]));
+        assert_eq!(
+            e,
+            vec![
+                ("500 MILES HIGH".to_string(), 141),
+                ("502 BLUES".to_string(), 142),
+                ("52ND STREET THEME".to_string(), 200),
             ]
         );
     }
