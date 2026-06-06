@@ -84,20 +84,34 @@ fn is_continuation_header(upper: &str) -> bool {
 
 /// Read a TOC line's trailing token as a printed page number.
 ///
-/// First tries the plain reading (digits with surrounding noise trimmed). If
-/// that fails, recovers common OCR letter-for-digit misreads (`O`->0, `I`/`l`->1,
-/// `Z`->2, `S`->5, `G`->6, `B`->8) — but only for a token that already holds a
-/// digit and maps cleanly to all-digits, so `3G3` -> 363 while words like `OZ`
-/// or `2nd` stay rejected. Returns `None` when it isn't a recognizable page.
+/// Strips surrounding non-alphanumeric noise, then, if every remaining char is a
+/// digit or a common OCR letter-for-digit lookalike (`O`->0, `I`/`l`->1, `Z`->2,
+/// `S`->5, `G`->6, `B`->8) — and at least one is a real digit, so words like
+/// `ZOO` don't become 200 — reads the whole token as a (possibly misread)
+/// number: `3G3` -> 363, `S0` -> 50. Recovery runs *before* the plain reading so
+/// a leading misread isn't mis-grabbed (`S0` -> 50, not 0). Otherwise it falls
+/// back to the embedded digits (`p.14` -> 14). `None` if it isn't a page.
 fn parse_page(tok: &str) -> Option<i32> {
-    let trimmed = tok.trim_matches(|c: char| !c.is_ascii_digit());
-    if let Ok(n) = trimmed.parse::<i32>() {
+    let core = tok.trim_matches(|c: char| !c.is_ascii_alphanumeric());
+    if core.is_empty() {
+        return None;
+    }
+    // Whole-token recovery, anchored on at least one real digit.
+    if core.chars().any(|c| c.is_ascii_digit())
+        && let Some(n) = recover_page_digits(core)
+    {
         return Some(n);
     }
-    let core = tok.trim_matches(|c: char| !c.is_ascii_alphanumeric());
-    if !core.chars().any(|c| c.is_ascii_digit()) {
-        return None; // no digit to anchor on -> not a page number
-    }
+    // Fall back to the digits embedded in the token, ignoring non-digit noise
+    // (e.g. a "p.14" label prefix), once recovery has declined it.
+    core.trim_matches(|c: char| !c.is_ascii_digit())
+        .parse::<i32>()
+        .ok()
+}
+
+/// Map a token of digits + OCR digit-lookalike letters to a number, or `None` if
+/// any character is neither a digit nor a known lookalike.
+fn recover_page_digits(core: &str) -> Option<i32> {
     let mut digits = String::with_capacity(core.len());
     for c in core.chars() {
         let d = match c {
@@ -108,7 +122,7 @@ fn parse_page(tok: &str) -> Option<i32> {
             'S' | 's' => '5',
             'G' => '6',
             'B' => '8',
-            _ => return None, // an unmappable letter -> not a page number
+            _ => return None,
         };
         digits.push(d);
     }
@@ -271,6 +285,9 @@ mod tests {
         assert_eq!(parse_page("304"), Some(304));
         assert_eq!(parse_page("3G3"), Some(363)); // G->6, letters between digits
         assert_eq!(parse_page("1O3"), Some(103)); // O->0
+        assert_eq!(parse_page("S0"), Some(50)); // leading S->5 (not grabbed as 0)
+        assert_eq!(parse_page("5O"), Some(50)); // trailing O->0
+        assert_eq!(parse_page("p.14"), Some(14)); // unmappable prefix -> embedded digits
         assert_eq!(parse_page("Eyes"), None); // no digit to anchor on
         assert_eq!(parse_page("OZ"), None); // letters only, no digit
         assert_eq!(parse_page("3N3"), None); // 'N' is not a digit-lookalike
