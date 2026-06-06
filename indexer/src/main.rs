@@ -64,33 +64,33 @@ fn main() -> Result<()> {
     let pdfium = render::bind_pdfium()?;
     let n_pages = render::page_count(&pdfium, &args.pdf)?;
     let index = index::load(&args.pdf)?;
+    let total: usize = index.values().map(Vec::len).sum();
     println!(
-        "{} has {n_pages} pages; using {} ({} entries)",
+        "{} has {n_pages} pages; using {} ({total} entries)",
         args.pdf.display(),
         index_path.display(),
-        index.len()
     );
 
     // Resolve each printed page to a 0-based scan page (clamped to the PDF) and
-    // drop exact-duplicate (title, page) rows.
+    // drop exact-duplicate (title, page) rows. A printed page may carry more than
+    // one title (two charts on a page); each resolves to the same scan page.
     let mut out_of_range = 0;
     let mut seen = HashSet::new();
-    let mut rows: Vec<(i32, String, i32)> = Vec::with_capacity(index.len()); // (printed, title, scan)
-    for (&printed, title) in &index {
+    let mut rows: Vec<(i32, String, i32)> = Vec::with_capacity(total); // (printed, title, scan)
+    for (&printed, titles) in &index {
         let scan = resolve_page(printed, args.offset);
         let clamped = scan.clamp(0, n_pages.saturating_sub(1) as i32);
         if scan != clamped {
-            out_of_range += 1;
+            out_of_range += titles.len() as i32;
         }
-        if seen.insert((title.clone(), clamped)) {
-            rows.push((printed, title.clone(), clamped));
+        for title in titles {
+            if seen.insert((title.clone(), clamped)) {
+                rows.push((printed, title.clone(), clamped));
+            }
         }
     }
-    if rows.len() < index.len() {
-        println!(
-            "dropped {} exact-duplicate row(s)",
-            index.len() - rows.len()
-        );
+    if rows.len() < total {
+        println!("dropped {} exact-duplicate row(s)", total - rows.len());
     }
 
     println!("\n{} entries:", rows.len());

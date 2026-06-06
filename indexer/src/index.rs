@@ -1,7 +1,11 @@
-//! Load a per-book `<stem>.index` sidecar: the complete printed-page -> title
+//! Load a per-book `<stem>.index` sidecar: the complete printed-page -> titles
 //! index, transcribed by reading the rendered TOC pages (the scans are too
 //! degraded for reliable OCR). One `<printed-page> <title>` per line; blank
 //! lines and `#` comments ignored. Lives next to the PDF, not in git.
+//!
+//! A printed page may hold more than one tune (some books print two short
+//! charts on a single page), so several lines can share the same page number;
+//! all are kept.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -10,8 +14,9 @@ use std::path::Path;
 
 use anyhow::{Context, Result, bail};
 
-/// Printed page number -> title.
-pub type Index = BTreeMap<i32, String>;
+/// Printed page number -> titles printed on it (a page may hold more than one
+/// tune), kept in the order they appear in the sidecar.
+pub type Index = BTreeMap<i32, Vec<String>>;
 
 /// Load `<stem>.index` next to `pdf`. An absent file yields an empty map.
 pub fn load(pdf: &Path) -> Result<Index> {
@@ -44,7 +49,7 @@ fn parse(text: &str) -> Result<Index> {
         if title.is_empty() {
             bail!("line {}: missing title for page {page}", i + 1);
         }
-        map.insert(page, title.to_string());
+        map.entry(page).or_default().push(title.to_string());
     }
     Ok(map)
 }
@@ -56,15 +61,35 @@ mod tests {
     #[test]
     fn parses_pages_and_skips_comments_and_blanks() {
         let m = parse("# a comment\n\n295 Sy Clone\n296\tT.J.R.C.\n").unwrap();
-        assert_eq!(m.get(&295).map(String::as_str), Some("Sy Clone"));
-        assert_eq!(m.get(&296).map(String::as_str), Some("T.J.R.C."));
+        assert_eq!(
+            m.get(&295).map(Vec::as_slice),
+            Some(&["Sy Clone".to_string()][..])
+        );
+        assert_eq!(
+            m.get(&296).map(Vec::as_slice),
+            Some(&["T.J.R.C.".to_string()][..])
+        );
         assert_eq!(m.len(), 2);
     }
 
     #[test]
     fn keeps_spaces_in_titles_and_trims() {
         let m = parse("  298 \t  Tea For Two  \n").unwrap();
-        assert_eq!(m.get(&298).map(String::as_str), Some("Tea For Two"));
+        assert_eq!(
+            m.get(&298).map(Vec::as_slice),
+            Some(&["Tea For Two".to_string()][..])
+        );
+    }
+
+    #[test]
+    fn keeps_multiple_titles_on_one_page() {
+        // Some books print two short charts on a single page.
+        let m = parse("38 Batterie\n38 Ictus\n").unwrap();
+        assert_eq!(
+            m.get(&38).map(Vec::as_slice),
+            Some(&["Batterie".to_string(), "Ictus".to_string()][..])
+        );
+        assert_eq!(m.len(), 1);
     }
 
     #[test]
