@@ -150,8 +150,11 @@ fn main() -> Result<()> {
     let printed_pages = if args.no_repair {
         raw_pages.clone()
     } else {
-        let (fixed, n_fixed) =
-            repair::repair_pages(&raw_pages, 1, n_pages as i32, args.repair_tolerance);
+        // Valid *printed* page range given the offset: printed P maps to scan
+        // page P + offset - 1 (0-based), which must land in 0..n_pages.
+        let lo = (1 - args.offset).max(1);
+        let hi = n_pages as i32 - args.offset;
+        let (fixed, n_fixed) = repair::repair_pages(&raw_pages, lo, hi, args.repair_tolerance);
         if n_fixed > 0 {
             println!("corrected {n_fixed} gross page-number outlier(s)");
         }
