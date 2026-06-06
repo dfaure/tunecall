@@ -23,13 +23,10 @@ pub fn parse_toc(lines: &[String]) -> Vec<(String, i32)> {
         }
         let toks: Vec<&str> = line.split_whitespace().collect();
         let last = toks.last().copied().unwrap_or("");
-        // Trailing token is the page number (tolerate surrounding non-digits).
-        let page = last
-            .trim_matches(|c: char| !c.is_ascii_digit())
-            .parse::<i32>();
-
-        match page {
-            Err(_) => {
+        // Trailing token is the page number (parse_page tolerates surrounding
+        // noise and recovers OCR letter-for-digit misreads like "3G3").
+        match parse_page(last) {
+            None => {
                 // No page: a wrapped-title fragment to carry forward, unless it's
                 // a header/garbage line (which breaks any pending wrap).
                 let frag = clean_title(line);
@@ -41,7 +38,7 @@ pub fn parse_toc(lines: &[String]) -> Vec<(String, i32)> {
                     prefix.clear();
                 }
             }
-            Ok(page) => {
+            Some(page) => {
                 let mut title = clean_title(&toks[..toks.len() - 1].join(" "));
                 if !prefix.is_empty() {
                     title = format!("{} {}", prefix.join(" "), title);
@@ -85,20 +82,58 @@ fn is_continuation_header(upper: &str) -> bool {
     is_cont(&norm) || (norm.len() > 4 && is_cont(&norm[1..]))
 }
 
+/// Read a TOC line's trailing token as a printed page number.
+///
+/// First tries the plain reading (digits with surrounding noise trimmed). If
+/// that fails, recovers common OCR letter-for-digit misreads (`O`->0, `I`/`l`->1,
+/// `Z`->2, `S`->5, `G`->6, `B`->8) — but only for a token that already holds a
+/// digit and maps cleanly to all-digits, so `3G3` -> 363 while words like `OZ`
+/// or `2nd` stay rejected. Returns `None` when it isn't a recognizable page.
+fn parse_page(tok: &str) -> Option<i32> {
+    let trimmed = tok.trim_matches(|c: char| !c.is_ascii_digit());
+    if let Ok(n) = trimmed.parse::<i32>() {
+        return Some(n);
+    }
+    let core = tok.trim_matches(|c: char| !c.is_ascii_alphanumeric());
+    if !core.chars().any(|c| c.is_ascii_digit()) {
+        return None; // no digit to anchor on -> not a page number
+    }
+    let mut digits = String::with_capacity(core.len());
+    for c in core.chars() {
+        let d = match c {
+            '0'..='9' => c,
+            'O' | 'o' => '0',
+            'I' | 'l' => '1',
+            'Z' | 'z' => '2',
+            'S' | 's' => '5',
+            'G' => '6',
+            'B' => '8',
+            _ => return None, // an unmappable letter -> not a page number
+        };
+        digits.push(d);
+    }
+    digits.parse::<i32>().ok()
+}
+
 /// Strip dot-leader OCR garbage from a TOC title.
 ///
 /// Dot leaders OCR as a run of dots (often glued to the title's last word) plus
 /// stray lowercase letters / digits (`PARIG............::ccceee`, `020`, `oo`).
-/// We cut at the first run of 2+ dots, then drop leading/trailing "junk" tokens
-/// — ones with no letters, or all-lowercase (these TOCs are uppercase, so an
+/// Sometimes the whole leader is misread as a run of `c`s (`Wall Street. cccccc
+/// ...`). We cut at the first run of 2+ dots or 3+ `c`s (3, since `cc` occurs in
+/// real words like `soccer`), then drop leading/trailing "junk" tokens — ones
+/// with no letters, or all-lowercase (these TOCs are uppercase, so an
 /// all-lowercase token is leader noise) — and trim separators at both ends,
 /// including OCR quote/dash junk glued to the front of a title (`““Smoke`,
 /// `~——Lennie`). A leading apostrophe is kept (`'Round Midnight`).
 fn clean_title(s: &str) -> String {
     let chars: Vec<char> = s.chars().collect();
     let mut cut = chars.len();
-    for i in 0..chars.len().saturating_sub(1) {
-        if chars[i] == '.' && chars[i + 1] == '.' {
+    for i in 0..chars.len() {
+        let two_dots = chars[i] == '.' && chars.get(i + 1) == Some(&'.');
+        let three_cs =
+            chars[i] == 'c' && chars.get(i + 1) == Some(&'c') && chars.get(i + 2) == Some(&'c');
+        if two_dots || three_cs {
             cut = i;
             break;
         }
@@ -211,6 +246,34 @@ mod tests {
                 ("'Round Midnight".to_string(), 50),
             ]
         );
+    }
+
+    #[test]
+    fn recovers_misread_page_and_c_run_leader() {
+        // Real OCR from realbk2h: the dot leader read as a run of c's, and the
+        // page 363 read as "3G3". Both lines must parse as separate entries
+        // rather than merging "Wall Street" onto the next title.
+        let e = parse_toc(&lines(&[
+            "Wall Street. cccccccccssccccececesesee 3G3",
+            "Watch What HappenS...ecccccsescccesese 304",
+        ]));
+        assert_eq!(
+            e,
+            vec![
+                ("Wall Street".to_string(), 363),
+                ("Watch What HappenS".to_string(), 304),
+            ]
+        );
+    }
+
+    #[test]
+    fn parse_page_recovers_or_rejects() {
+        assert_eq!(parse_page("304"), Some(304));
+        assert_eq!(parse_page("3G3"), Some(363)); // G->6, letters between digits
+        assert_eq!(parse_page("1O3"), Some(103)); // O->0
+        assert_eq!(parse_page("Eyes"), None); // no digit to anchor on
+        assert_eq!(parse_page("OZ"), None); // letters only, no digit
+        assert_eq!(parse_page("3N3"), None); // 'N' is not a digit-lookalike
     }
 
     #[test]
