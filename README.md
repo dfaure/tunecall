@@ -11,10 +11,12 @@ The song index is produced offline by a separate tool, [`indexer/`](indexer/READ
 - PDFs live in `<data-dir>/pdfs/`. On desktop `<data-dir>` is
   `dirs::data_dir()/tunecall` (e.g. `~/.local/share/tunecall`); on Android it is
   the app-specific data path.
-- Each book `<name>.PDF` has a sibling index `<name>.db` in the same folder:
-  a SQLite file with `songs(title TEXT, page INTEGER)`, where `page` is the
-  0-based page to render. The viewer loads every such index and searches across
-  all of them.
+- Each book `<name>.PDF` (in `<data-dir>/pdfs/`) has an index `<name>.db`: a
+  SQLite file with `songs(title TEXT, page INTEGER)`, where `page` is the
+  0-based page to render. The index is read from `pdfs/` first (locally
+  authored), then from `<data-dir>/downloaded/` (fetched by **Reload**) — so a
+  download never clobbers an index you're working on. The viewer loads every
+  book's index and searches across all of them.
 - Picking a result opens that book's PDF at the stored page. Pages are rendered
   with [pdfium](https://pdfium.googlesource.com/pdfium/) via `pdfium-render`.
 
@@ -78,9 +80,11 @@ app downloads them on demand so you don't have to re-copy them after every fix:
 2. Upload them: `scripts/upload-indexes.sh` — pushes every `<book>.db` plus an
    `index.txt` manifest to `ftp.davidfaure.fr/tunecall` via ncftp's `davidfaure`
    bookmark (which stores the credentials).
-3. In the app, tap **Reload** — it downloads `index.txt` and each listed `.db`
-   from `http://www.davidfaure.fr/tunecall/` into the device's `pdfs/` folder,
-   then re-reads the library.
+3. On any device (Android or another Linux machine), tap **Reload** — it
+   downloads `index.txt` and each listed `.db` from
+   `http://www.davidfaure.fr/tunecall/` into `<data-dir>/downloaded/`, then
+   re-reads the library. Locally authored indexes in `pdfs/` take precedence, so
+   on the authoring machine Reload won't overwrite work you haven't uploaded.
 
 Download uses plain `http://` (no TLS — same as videofinder; HTTPS misbehaves on
 Android and the server serves both).

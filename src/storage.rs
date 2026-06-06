@@ -37,7 +37,14 @@ fn default_data_dir() -> PathBuf {
     panic!("data dir not initialized; android_main must call set_data_dir() first");
 }
 
-/// Directory holding the `.pdf` books and their sibling `.db` indexes.
+/// Directory holding the `.pdf` books and any locally authored `.db` indexes.
 pub fn pdf_dir() -> PathBuf {
     data_dir().join("pdfs")
+}
+
+/// Directory where Reload writes the indexes it downloads from the server.
+/// Kept separate from [`pdf_dir`] so a download never clobbers locally authored
+/// indexes — the viewer reads `pdf_dir` first, then this.
+pub fn download_dir() -> PathBuf {
+    data_dir().join("downloaded")
 }

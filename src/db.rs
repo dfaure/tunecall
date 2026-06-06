@@ -1,9 +1,10 @@
 //! Reads the per-PDF song indexes produced by the indexer (`../indexer`).
 //!
-//! Each PDF `<stem>.PDF` has a sibling SQLite file `<stem>.db` containing a
-//! `songs(title TEXT, page INTEGER)` table, where `page` is the 0-based page to
-//! render. The viewer loads every such index it finds in the PDF folder and
-//! searches across all of them; it never writes to them.
+//! A book `<stem>.PDF` (in `pdf_dir`) has an index `<stem>.db` with a
+//! `songs(title TEXT, page INTEGER)` table, where `page` is the 0-based render
+//! page. The `.db` is read from `pdf_dir` first (locally authored) and falls
+//! back to `download_dir` (fetched by Reload), so downloads never shadow
+//! work-in-progress. The viewer searches across all books; it never writes here.
 
 use std::path::{Path, PathBuf};
 
@@ -24,39 +25,58 @@ pub struct Song {
     pub page: i32,
 }
 
-/// Load every `<stem>.db` in the PDF folder that has a matching `<stem>.PDF`.
+/// Load the library: PDFs come from `pdf_dir`; each book's `<stem>.db` is taken
+/// from `pdf_dir` first (locally authored), then `download_dir` (fetched by
+/// Reload). Books with no index yet are skipped.
 pub fn load_library() -> Result<Vec<Song>> {
-    load_library_from(&storage::pdf_dir())
+    load_library_from(&storage::pdf_dir(), &storage::download_dir())
 }
 
-fn load_library_from(dir: &Path) -> Result<Vec<Song>> {
+fn load_library_from(pdf_dir: &Path, download_dir: &Path) -> Result<Vec<Song>> {
+    let pdfs = list_with_ext(pdf_dir, "pdf");
+    let local_dbs = list_with_ext(pdf_dir, "db");
+    let downloaded_dbs = list_with_ext(download_dir, "db");
+
     let mut songs = Vec::new();
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return Ok(songs); // folder not created yet
-    };
-
-    let files: Vec<PathBuf> = entries.flatten().map(|e| e.path()).collect();
-    for db_path in files.iter().filter(|p| has_ext(p, "db")) {
-        let Some(stem) = db_path.file_stem().and_then(|s| s.to_str()) else {
+    for pdf in &pdfs {
+        let Some(stem) = pdf.file_stem().and_then(|s| s.to_str()) else {
             continue;
         };
-        // Find the sibling PDF (same stem, .pdf extension, case-insensitive).
-        let Some(pdf) = files.iter().find(|p| {
-            has_ext(p, "pdf")
-                && p.file_stem()
-                    .and_then(|s| s.to_str())
-                    .is_some_and(|s| s.eq_ignore_ascii_case(stem))
-        }) else {
-            log::warn!("index {} has no matching PDF; skipping", db_path.display());
-            continue;
+        let Some(db) =
+            find_by_stem(&local_dbs, stem).or_else(|| find_by_stem(&downloaded_dbs, stem))
+        else {
+            continue; // no index for this book yet
         };
-
-        match read_songs(db_path, pdf, stem) {
+        match read_songs(db, pdf, stem) {
             Ok(mut s) => songs.append(&mut s),
-            Err(e) => log::warn!("failed to read {}: {e}", db_path.display()),
+            Err(e) => log::warn!("failed to read {}: {e}", db.display()),
         }
     }
     Ok(songs)
+}
+
+/// Files in `dir` with the given (case-insensitive) extension. Missing dir = none.
+fn list_with_ext(dir: &Path, ext: &str) -> Vec<PathBuf> {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    entries
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| has_ext(p, ext))
+        .collect()
+}
+
+/// First file whose stem matches `stem` (case-insensitive).
+fn find_by_stem<'a>(files: &'a [PathBuf], stem: &str) -> Option<&'a Path> {
+    files
+        .iter()
+        .find(|p| {
+            p.file_stem()
+                .and_then(|s| s.to_str())
+                .is_some_and(|s| s.eq_ignore_ascii_case(stem))
+        })
+        .map(|p| p.as_path())
 }
 
 fn read_songs(db_path: &Path, pdf: &Path, stem: &str) -> Result<Vec<Song>> {
@@ -109,33 +129,49 @@ pub fn search<'a>(songs: &'a [Song], query: &str, limit: usize) -> Vec<&'a Song>
 mod tests {
     use super::*;
 
-    #[test]
-    fn loads_songs_and_matches_sibling_pdf() {
-        let dir = std::env::temp_dir().join(format!("tunecall-test-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join("Book One.PDF"), b"%PDF-1.4").unwrap();
-        let conn = Connection::open(dir.join("Book One.db")).unwrap();
-        conn.execute_batch(
-            "CREATE TABLE songs(title TEXT, page INTEGER);
-             INSERT INTO songs VALUES ('Affirmation', 15), ('All Blues', 30);",
-        )
-        .unwrap();
-        // A .db with no matching PDF must be ignored.
-        Connection::open(dir.join("Orphan.db"))
-            .unwrap()
-            .execute_batch("CREATE TABLE songs(title TEXT, page INTEGER); INSERT INTO songs VALUES ('Nope', 1);")
+    fn write_db(path: &Path, rows: &[(&str, i32)]) {
+        let conn = Connection::open(path).unwrap();
+        conn.execute_batch("CREATE TABLE songs(title TEXT, page INTEGER);")
             .unwrap();
+        for (title, page) in rows {
+            conn.execute("INSERT INTO songs VALUES (?1, ?2)", (title, page))
+                .unwrap();
+        }
+    }
 
-        let songs = load_library_from(&dir).unwrap();
+    #[test]
+    fn prefers_local_db_then_downloaded() {
+        let base = std::env::temp_dir().join(format!("tunecall-test-{}", std::process::id()));
+        let pdfs = base.join("pdfs");
+        let dl = base.join("downloaded");
+        std::fs::create_dir_all(&pdfs).unwrap();
+        std::fs::create_dir_all(&dl).unwrap();
+
+        // Book One: local .db (page 30) AND a downloaded .db (page 999) -> local wins.
+        std::fs::write(pdfs.join("Book One.PDF"), b"%PDF-1.4").unwrap();
+        write_db(&pdfs.join("Book One.db"), &[("All Blues", 30)]);
+        write_db(&dl.join("Book One.db"), &[("All Blues", 999)]);
+
+        // Book Two: PDF in pdfs, index only downloaded -> used.
+        std::fs::write(pdfs.join("Book Two.PDF"), b"%PDF-1.4").unwrap();
+        write_db(&dl.join("Book Two.db"), &[("So What", 5)]);
+
+        // A downloaded .db with no PDF is ignored.
+        write_db(&dl.join("Ghost.db"), &[("Nope", 1)]);
+
+        let songs = load_library_from(&pdfs, &dl).unwrap();
         assert_eq!(songs.len(), 2);
 
-        let hits = search(&songs, "all", 10);
-        assert_eq!(hits.len(), 1);
-        assert_eq!(hits[0].title, "All Blues");
-        assert_eq!(hits[0].book, "Book One");
-        assert_eq!(hits[0].page, 30);
-        assert!(hits[0].file.ends_with("Book One.PDF"));
+        let blues = search(&songs, "all blues", 10);
+        assert_eq!(blues.len(), 1);
+        assert_eq!(blues[0].page, 30); // local wins, not the downloaded 999
+        assert_eq!(blues[0].book, "Book One");
 
-        std::fs::remove_dir_all(&dir).ok();
+        let so_what = search(&songs, "so what", 10);
+        assert_eq!(so_what.len(), 1);
+        assert_eq!(so_what[0].page, 5);
+        assert!(so_what[0].file.ends_with("Book Two.PDF"));
+
+        std::fs::remove_dir_all(&base).ok();
     }
 }

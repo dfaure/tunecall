@@ -36,10 +36,10 @@ async fn download_to(client: &Client, url: &str, path: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Download `index.txt` and every `<book>.db` it lists into the PDF folder.
-/// Returns how many index files were fetched.
+/// Download `index.txt` and every `<book>.db` it lists into the download folder
+/// (kept separate from locally authored indexes). Returns how many were fetched.
 pub async fn download_indexes() -> Result<usize> {
-    let dir = storage::pdf_dir();
+    let dir = storage::download_dir();
     std::fs::create_dir_all(&dir)?;
     let client = Client::new();
 
