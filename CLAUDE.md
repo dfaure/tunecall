@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 TuneCall is a cross-platform (desktop + Android, primarily Android) Rust app using Slint for the UI. It is the **viewer**: it searches a song index and opens the matching (scanned) fake-book PDF at the right page.
 
-The index is built by a **separate Linux-only tool** in `indexer/` (`tunecall-indexer`), which OCRs each book's table of contents into a per-PDF SQLite file. See `indexer/README.md`.
+The index is built by a **separate Linux-only tool** in `indexer/` (`tunecall-indexer`), which turns a transcribed table of contents (a `<stem>.index` sidecar) into a per-PDF SQLite file. See `indexer/README.md`.
 
 ### Why this split
 
@@ -26,7 +26,7 @@ cargo test                   # Unit tests
 cargo fmt                    # Format code
 cargo clippy --all-targets -- -D warnings  # Lint (all warnings are errors)
 
-cd indexer && cargo run -- --help           # The OCR indexer (separate package)
+cd indexer && cargo run -- --help           # The indexer (separate package)
 ```
 
 Pre-commit hooks enforce `cargo fmt` and `cargo clippy` on every commit.
@@ -49,7 +49,7 @@ Android builds target `aarch64-linux-android` and use Gradle (`./gradlew build` 
 
 ## Architecture (indexer, `indexer/`)
 
-Standalone package `tunecall-indexer` (not in the viewer's build). Pipeline in `src/main.rs`: render TOC page(s) with pdfium (`render.rs`) → OCR via the `tesseract` CLI (`ocr.rs`) → parse `title + printed page` (`toc.rs`, unit-tested) → map printed→scan page (`resolve_page`) → write `<stem>.db` (`db.rs`). **Current limitation:** `resolve_page` uses a single `--offset`, which doesn't handle missing pages; the planned robust fix is to OCR printed page numbers off each scanned page. Requires `tesseract` and a pdfium library at runtime.
+Standalone package `tunecall-indexer` (not in the viewer's build). The scans are too degraded for reliable OCR, so the index is transcribed by reading the rendered TOC pages into a `<stem>.index` sidecar (`<printed-page> <title>` per line, next to the PDF, not in git). `src/main.rs` loads it (`index.rs`, parser unit-tested), maps each printed page to a 0-based scan page via `--offset` (`resolve_page`), drops exact-duplicate rows, and writes `<stem>.db` (`db.rs`). `render.rs` only reads the PDF page count (to validate `--offset` and clamp out-of-range entries), so a pdfium library is needed at runtime but tesseract is not. **Limitation:** a single `--offset` can't model a scan with missing/extra pages; out-of-range entries are clamped (fix the page in the `.index`). Earlier versions OCR'd via tesseract with per-book `.corrections`; that code is in the git history.
 
 ## Runtime requirement: pdfium
 
@@ -65,9 +65,9 @@ Search works without pdfium; only rendering a page needs it.
 - Library compiles as both `cdylib` (Android native lib) and `rlib` (desktop binary). The `with-binary` feature (default) enables the desktop binary, and is disabled for Android builds.
 - `slint` and `slint-build` are versioned dependencies (no workspace); the Android backend is selected via the `slint/backend-android-activity-06` feature from the command line / Gradle.
 - Slint uses the **FemtoVG** renderer (`renderer-femtovg`), not Skia. FemtoVG is pure Rust + OpenGL and avoids Skia's heavy native build/binary download (a real pain for the Android cross-build). PDF page rendering still uses pdfium; that is unrelated to the UI renderer.
-- Tests: `cargo test` covers the viewer's library loader (`src/db.rs`) and the indexer's TOC parser (`indexer/src/toc.rs`). UI and rendering are not tested.
+- Tests: `cargo test` covers the viewer's library loader (`src/db.rs`) and the indexer's index-file parser (`indexer/src/index.rs`). UI and rendering are not tested.
 
 ## Platform status
 
-- Desktop (Linux): viewer verified building/clippy/tests; in-app rendering verified earlier. Indexer pipeline verified up to the OCR call (needs `tesseract` installed to run fully).
+- Desktop (Linux): viewer verified building/clippy/tests; in-app rendering verified earlier. Indexer builds all five book DBs from their `.index` sidecars.
 - Android: not yet built/tested. `android_main` is `#[cfg(target_os = "android")]`, so the desktop build never type-checks it; the app-specific data dir and `jniLibs` packaging still need a real NDK build to validate.

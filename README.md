@@ -19,9 +19,9 @@ The song index is produced offline by a separate tool, [`indexer/`](indexer/READ
   with [pdfium](https://pdfium.googlesource.com/pdfium/) via `pdfium-render`.
 
 The books are scanned images with no text layer, so the per-PDF indexes are
-built by OCR'ing each book's table of contents — see `indexer/`. Storing the
-actual render page (rather than a printed page + offset) keeps the viewer
-correct even when a scan is missing pages.
+built by transcribing each book's table of contents (reading the rendered TOC
+pages — the scans are too degraded for reliable OCR) — see `indexer/`. The DB
+stores the actual 0-based render page, so the viewer just renders it.
 
 ### pdfium library
 

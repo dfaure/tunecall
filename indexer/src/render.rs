@@ -1,4 +1,5 @@
-//! Render PDF pages to PNG images for OCR, using pdfium.
+//! Bind the pdfium shared library and read a PDF's page count (used to validate
+//! `--offset` and clamp out-of-range entries).
 
 use std::path::Path;
 
@@ -18,17 +19,6 @@ pub fn bind_pdfium() -> Result<Pdfium> {
     let bindings = Pdfium::bind_to_system_library()
         .map_err(|e| anyhow!("could not load a pdfium library (cwd, .., ../.., or system): {e}"))?;
     Ok(Pdfium::new(bindings))
-}
-
-/// Render 0-based `page` of `pdf` to `out` (a `.png` path) at `dpi`.
-pub fn render_page_png(pdfium: &Pdfium, pdf: &Path, page: u16, dpi: i32, out: &Path) -> Result<()> {
-    let doc = pdfium.load_pdf_from_file(pdf, None)?;
-    let page = doc.pages().get(page)?;
-    // pdfium renders at 72 DPI for scale 1.0.
-    let config = PdfRenderConfig::new().scale_page_by_factor(dpi.max(1) as f32 / 72.0);
-    let bitmap = page.render_with_config(&config)?;
-    bitmap.as_image().save(out)?;
-    Ok(())
 }
 
 /// Number of pages in `pdf`.
