@@ -76,8 +76,8 @@ app downloads them on demand so you don't have to re-copy them after every fix:
 
 1. (Re)generate the indexes with the indexer (see `indexer/`).
 2. Upload them: `scripts/upload-indexes.sh` — pushes every `<book>.db` plus an
-   `index.txt` manifest to `ftp://ftp.davidfaure.fr/tunecall` (password read
-   from `~/.kvideomanager_ftp_passwd`).
+   `index.txt` manifest to `ftp.davidfaure.fr/tunecall` via ncftp's `davidfaure`
+   bookmark (which stores the credentials).
 3. In the app, tap **Reload** — it downloads `index.txt` and each listed `.db`
    from `http://www.davidfaure.fr/tunecall/` into the device's `pdfs/` folder,
    then re-reads the library.
