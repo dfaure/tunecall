@@ -30,8 +30,11 @@ fn default_data_dir() -> PathBuf {
 
 #[cfg(target_os = "android")]
 fn default_data_dir() -> PathBuf {
-    // Fallback only; android_main normally calls set_data_dir() first.
-    PathBuf::from("/storage/emulated/0/Download/tunecall")
+    // Unreachable in practice: android_main resolves the app-specific path and
+    // calls set_data_dir() before anything reads it. There is no usable
+    // hardcoded fallback on modern Android — scoped storage blocks arbitrary
+    // shared paths like /storage/emulated/0/Download.
+    panic!("data dir not initialized; android_main must call set_data_dir() first");
 }
 
 /// Directory holding the `.pdf` books and their sibling `.db` indexes.

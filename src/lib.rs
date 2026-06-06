@@ -34,18 +34,22 @@ struct ViewerState {
 #[unsafe(no_mangle)]
 fn android_main(app: slint::android::AndroidApp) -> Result<(), Box<dyn Error>> {
     // Resolve the app-specific storage directory before anything touches it.
-    if let Some(dir) = app
+    // There is no usable fallback on modern Android (scoped storage blocks
+    // arbitrary shared paths), so a missing path is fatal.
+    let data_dir = app
         .external_data_path()
         .or_else(|| app.internal_data_path())
-    {
-        storage::set_data_dir(dir);
-    }
+        .expect("Android provided no app data path");
+    storage::set_data_dir(data_dir);
 
-    // Log to file, on Android
+    // Log to a file inside the app data dir (shared storage like Download/ is
+    // not writable on modern Android without extra permissions).
     flexi_logger::Logger::try_with_env_or_str("debug,android_activity::activity_impl::glue=off")?
-        .log_to_file(flexi_logger::FileSpec::try_from(
-            "/storage/emulated/0/Download/tunecall_log.txt",
-        )?)
+        .log_to_file(
+            flexi_logger::FileSpec::default()
+                .directory(storage::data_dir())
+                .basename("tunecall"),
+        )
         .format(flexi_logger::detailed_format)
         .start()?;
 
