@@ -69,3 +69,19 @@ Install the PDFs like realbk1h.pdf (the name matters!) in the directory
 /storage/emulated/0/Android/data/fr.davidfaure.tunecall/files/pdfs/
 from a PC (connected via USB to your Android device)
 
+### Publishing / syncing the song indexes
+
+The PDFs can't be published (copyright), but the small `.db` indexes can. The
+app downloads them on demand so you don't have to re-copy them after every fix:
+
+1. (Re)generate the indexes with the indexer (see `indexer/`).
+2. Upload them: `scripts/upload-indexes.sh` — pushes every `<book>.db` plus an
+   `index.txt` manifest to `ftp://ftp.davidfaure.fr/tunecall` (password read
+   from `~/.kvideomanager_ftp_passwd`).
+3. In the app, tap **Reload** — it downloads `index.txt` and each listed `.db`
+   from `http://www.davidfaure.fr/tunecall/` into the device's `pdfs/` folder,
+   then re-reads the library.
+
+Download uses plain `http://` (no TLS — same as videofinder; HTTPS misbehaves on
+Android and the server serves both).
+

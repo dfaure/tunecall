@@ -10,6 +10,7 @@ use slint::{Image, VecModel};
 mod db;
 mod pdf;
 mod storage;
+mod sync;
 
 use db::Song;
 
@@ -190,15 +191,35 @@ pub fn tunecall_main() -> Result<(), Box<dyn Error>> {
         }
     });
 
+    // Reload = download the published indexes from the server, then reload from
+    // disk. Runs on the Slint event loop (async-compat bridges reqwest's tokio),
+    // so it can touch the Rc state directly without blocking the UI.
     ui.on_reload({
         let ui_handle = ui.as_weak();
         let library = library.clone();
         let results = results.clone();
         move || {
             let ui = ui_handle.unwrap();
-            results.borrow_mut().clear();
-            ui.set_results(empty_results());
-            reload_library(&ui, &library);
+            ui.set_status("Downloading indexes…".into());
+            let ui_handle = ui_handle.clone();
+            let library = library.clone();
+            let results = results.clone();
+            if let Err(e) = slint::spawn_local(async_compat::Compat::new(async move {
+                let ui = ui_handle.unwrap();
+                match sync::download_indexes().await {
+                    Ok(n) => log::info!("downloaded {n} index file(s)"),
+                    Err(e) => {
+                        log::warn!("index download failed: {e}");
+                        ui.set_status(format!("Download failed: {e}").into());
+                        return;
+                    }
+                }
+                results.borrow_mut().clear();
+                ui.set_results(empty_results());
+                reload_library(&ui, &library);
+            })) {
+                log::error!("failed to schedule download: {e}");
+            }
         }
     });
 
