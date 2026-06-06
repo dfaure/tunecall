@@ -1,6 +1,6 @@
 use std::error::Error;
 
-use jambook::jambook_main;
+use tunecall::tunecall_main;
 
 fn main() -> Result<(), Box<dyn Error>> {
     // Prevent tracing (used by winit) from forwarding debug spam to the log crate.
@@ -13,5 +13,5 @@ fn main() -> Result<(), Box<dyn Error>> {
         .start()
         .unwrap();
 
-    jambook_main()
+    tunecall_main()
 }

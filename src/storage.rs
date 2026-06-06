@@ -25,13 +25,13 @@ pub fn data_dir() -> PathBuf {
 fn default_data_dir() -> PathBuf {
     dirs::data_dir()
         .unwrap_or_else(|| PathBuf::from("."))
-        .join("jambook")
+        .join("tunecall")
 }
 
 #[cfg(target_os = "android")]
 fn default_data_dir() -> PathBuf {
     // Fallback only; android_main normally calls set_data_dir() first.
-    PathBuf::from("/storage/emulated/0/Download/jambook")
+    PathBuf::from("/storage/emulated/0/Download/tunecall")
 }
 
 /// Directory holding the `.pdf` books and their sibling `.db` indexes.

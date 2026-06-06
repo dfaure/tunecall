@@ -111,7 +111,7 @@ mod tests {
 
     #[test]
     fn loads_songs_and_matches_sibling_pdf() {
-        let dir = std::env::temp_dir().join(format!("jambook-test-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("tunecall-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("Book One.PDF"), b"%PDF-1.4").unwrap();
         let conn = Connection::open(dir.join("Book One.db")).unwrap();

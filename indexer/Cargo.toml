@@ -1,10 +1,10 @@
 [package]
-name = "jambook-indexer"
+name = "tunecall-indexer"
 version = "0.1.0"
 edition = "2024"
-description = "Linux-only tool: OCR a fake-book's table of contents into a per-PDF song index for JamBook"
+description = "Linux-only tool: OCR a fake-book's table of contents into a per-PDF song index for TuneCall"
 
-# Standalone package (NOT part of the jambook crate / Android build). Build and
+# Standalone package (NOT part of the tunecall crate / Android build). Build and
 # run it from this directory: `cargo run -- --help`.
 
 [dependencies]

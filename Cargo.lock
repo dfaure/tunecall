@@ -2461,21 +2461,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
 
 [[package]]
-name = "jambook"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "dirs",
- "flexi_logger",
- "log",
- "pdfium-render",
- "rusqlite",
- "slint",
- "slint-build",
- "tracing",
-]
-
-[[package]]
 name = "jni"
 version = "0.22.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4942,6 +4927,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d2df906b07856748fa3f6e0ad0cbaa047052d4a7dd609e231c4f72cee8c36f31"
 dependencies = [
  "core_maths",
+]
+
+[[package]]
+name = "tunecall"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "dirs",
+ "flexi_logger",
+ "log",
+ "pdfium-render",
+ "rusqlite",
+ "slint",
+ "slint-build",
+ "tracing",
 ]
 
 [[package]]

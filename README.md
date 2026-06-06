@@ -1,4 +1,4 @@
-# JamBook
+# TuneCall
 
 A personal application, built in Rust with [Slint](https://slint.rs/) for the
 user interface. Cross-platform (desktop + Android), primarily targeting Android.
@@ -12,7 +12,7 @@ Linux tool, [`indexer/`](indexer/README.md).
 ## How it works
 
 - PDFs live in `<data-dir>/pdfs/`. On desktop `<data-dir>` is
-  `dirs::data_dir()/jambook` (e.g. `~/.local/share/jambook`); on Android it is
+  `dirs::data_dir()/tunecall` (e.g. `~/.local/share/tunecall`); on Android it is
   the app-specific data path.
 - Each book `<name>.PDF` has a sibling index `<name>.db` in the same folder:
   a SQLite file with `songs(title TEXT, page INTEGER)`, where `page` is the

@@ -8,7 +8,7 @@ android {
 
     applicationVariants.all { variant ->
         variant.outputs.all { output ->
-            outputFileName = "jambook-${variant.buildType.name}.apk"
+            outputFileName = "tunecall-${variant.buildType.name}.apk"
         }
     }
 
@@ -28,7 +28,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "fr.davidfaure.jambook.slint"
+        applicationId = "fr.davidfaure.tunecall.slint"
         minSdk = 28
         targetSdk = 31
         versionCode = 1
@@ -55,7 +55,7 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    namespace = 'fr.davidfaure.jambook.slint'
+    namespace = 'fr.davidfaure.tunecall.slint'
 }
 
 dependencies {

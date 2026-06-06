@@ -6,7 +6,7 @@ use anyhow::{Result, anyhow};
 use pdfium_render::prelude::*;
 
 /// Bind to a pdfium shared library: try next-to-cwd and a couple of parents
-/// (the jambook repo keeps `libpdfium.so` at its root), then the system one.
+/// (the repo root keeps `libpdfium.so`), then the system one.
 pub fn bind_pdfium() -> Result<Pdfium> {
     for dir in ["./", "../", "../../"] {
         if let Ok(bindings) =

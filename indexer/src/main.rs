@@ -1,10 +1,10 @@
-//! jambook-indexer: build a per-PDF song index for JamBook by OCR'ing a
+//! tunecall-indexer: build a per-PDF song index for TuneCall by OCR'ing a
 //! fake-book's table of contents.
 //!
 //! Pipeline: render the TOC page(s) -> OCR (tesseract) -> parse `title + printed
 //! page` -> map printed page to the real scan page -> write `<stem>.db`.
 //!
-//! LIMITATION (the reason JamBook moved off a global master index): mapping the
+//! LIMITATION (the reason TuneCall moved off a global master index): mapping the
 //! printed page to the actual scan page currently uses a single `--offset`,
 //! which is wrong as soon as the scan has missing/extra pages. The robust fix is
 //! to OCR the printed page number off each scanned page and build a real

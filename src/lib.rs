@@ -44,15 +44,15 @@ fn android_main(app: slint::android::AndroidApp) -> Result<(), Box<dyn Error>> {
     // Log to file, on Android
     flexi_logger::Logger::try_with_env_or_str("debug,android_activity::activity_impl::glue=off")?
         .log_to_file(flexi_logger::FileSpec::try_from(
-            "/storage/emulated/0/Download/jambook_log.txt",
+            "/storage/emulated/0/Download/tunecall_log.txt",
         )?)
         .format(flexi_logger::detailed_format)
         .start()?;
 
-    log::info!("jambook started");
+    log::info!("tunecall started");
     slint::android::init(app).unwrap();
     log::debug!("slint::android initialized");
-    let ret = jambook_main();
+    let ret = tunecall_main();
     if let Err(ref e) = ret {
         log::error!("{:?}", e);
     }
@@ -110,7 +110,7 @@ fn empty_results() -> slint::ModelRc<SongResult> {
     Rc::new(VecModel::<SongResult>::default()).into()
 }
 
-pub fn jambook_main() -> Result<(), Box<dyn Error>> {
+pub fn tunecall_main() -> Result<(), Box<dyn Error>> {
     std::panic::set_hook(Box::new(|info| {
         log::error!("Panic occurred: {}", info);
     }));

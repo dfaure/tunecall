@@ -1,4 +1,4 @@
-//! Writes the per-PDF song index consumed by the JamBook viewer.
+//! Writes the per-PDF song index consumed by the TuneCall viewer.
 //!
 //! Schema (shared contract): `songs(title TEXT, page INTEGER)` where `page` is
 //! the 0-based page to render.

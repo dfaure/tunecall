@@ -1,5 +1,5 @@
 [package]
-name = "jambook"
+name = "tunecall"
 version = "0.1.0"
 edition = "2024"
 
@@ -31,7 +31,7 @@ slint-build = "1.14"
 crate-type = ["cdylib", "rlib"]
 
 [[bin]]
-name = "jambook"
+name = "tunecall"
 path = "src/bin/main.rs"
 # This allows to skip building the binary on Android (it builds, but it's useless and very slow to build)
 required-features = ["with-binary"]

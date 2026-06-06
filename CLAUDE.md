@@ -4,9 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-JamBook is a cross-platform (desktop + Android, primarily Android) Rust app using Slint for the UI. It is the **viewer**: it searches a song index and opens the matching (scanned) fake-book PDF at the right page.
+TuneCall is a cross-platform (desktop + Android, primarily Android) Rust app using Slint for the UI. It is the **viewer**: it searches a song index and opens the matching (scanned) fake-book PDF at the right page.
 
-The index is built by a **separate Linux-only tool** in `indexer/` (`jambook-indexer`), which OCRs each book's table of contents into a per-PDF SQLite file. See `indexer/README.md`.
+The index is built by a **separate Linux-only tool** in `indexer/` (`tunecall-indexer`), which OCRs each book's table of contents into a per-PDF SQLite file. See `indexer/README.md`.
 
 ### Why this split
 
@@ -37,7 +37,7 @@ Android builds target `aarch64-linux-android` and use Gradle (`./gradlew build` 
 
 **UI layer** (`ui/*.slint`): Declarative Slint UI compiled at build time via `build.rs`. Uses `fluent-light` style. `app-window.slint` is the main window: a search box, a results list, and a full-window page viewer overlay.
 
-**Application core** (`src/lib.rs`): `jambook_main()` creates the `AppWindow`, loads the library, and wires up callbacks (search, open-result, reload, prev/next/close). The whole library and the current search results are held in Rust (`Rc<RefCell<Vec<db::Song>>>`) so a clicked row maps straight to its song (file + page). `android_main()` is the Android `#[no_mangle]` entry point that resolves the app-specific data dir, initializes logging-to-file and the Slint Android backend, then calls `jambook_main()`.
+**Application core** (`src/lib.rs`): `tunecall_main()` creates the `AppWindow`, loads the library, and wires up callbacks (search, open-result, reload, prev/next/close). The whole library and the current search results are held in Rust (`Rc<RefCell<Vec<db::Song>>>`) so a clicked row maps straight to its song (file + page). `android_main()` is the Android `#[no_mangle]` entry point that resolves the app-specific data dir, initializes logging-to-file and the Slint Android backend, then calls `tunecall_main()`.
 
 **Storage paths** (`src/storage.rs`): Resolves `data_dir()` / `pdf_dir()`. Desktop uses `dirs::data_dir()`; Android sets the base via `set_data_dir()` from `android_main`.
 
@@ -45,11 +45,11 @@ Android builds target `aarch64-linux-android` and use Gradle (`./gradlew build` 
 
 **PDF rendering** (`src/pdf.rs`): `pdfium-render` bound dynamically at runtime (thread-local, lazily). `page_count()` and `render_page()` rasterize a page to a `slint::Image` via `as_rgba_bytes()` (no `image` crate dependency).
 
-**Binary entry** (`src/bin/main.rs`): Sets up stderr logging via `flexi_logger` and calls `jambook_main()`. Only built on desktop (the `with-binary` feature, on by default).
+**Binary entry** (`src/bin/main.rs`): Sets up stderr logging via `flexi_logger` and calls `tunecall_main()`. Only built on desktop (the `with-binary` feature, on by default).
 
 ## Architecture (indexer, `indexer/`)
 
-Standalone package `jambook-indexer` (not in the viewer's build). Pipeline in `src/main.rs`: render TOC page(s) with pdfium (`render.rs`) → OCR via the `tesseract` CLI (`ocr.rs`) → parse `title + printed page` (`toc.rs`, unit-tested) → map printed→scan page (`resolve_page`) → write `<stem>.db` (`db.rs`). **Current limitation:** `resolve_page` uses a single `--offset`, which doesn't handle missing pages; the planned robust fix is to OCR printed page numbers off each scanned page. Requires `tesseract` and a pdfium library at runtime.
+Standalone package `tunecall-indexer` (not in the viewer's build). Pipeline in `src/main.rs`: render TOC page(s) with pdfium (`render.rs`) → OCR via the `tesseract` CLI (`ocr.rs`) → parse `title + printed page` (`toc.rs`, unit-tested) → map printed→scan page (`resolve_page`) → write `<stem>.db` (`db.rs`). **Current limitation:** `resolve_page` uses a single `--offset`, which doesn't handle missing pages; the planned robust fix is to OCR printed page numbers off each scanned page. Requires `tesseract` and a pdfium library at runtime.
 
 ## Runtime requirement: pdfium
 
