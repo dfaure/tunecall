@@ -21,6 +21,12 @@ index realbk2h     7
 index realbk3h     5
 index realbk4h    -1
 index realbk5h    -2
+index realbk6h    -2
 index crealbk1    13
 index 557standrd   7
 index reasybk      8
+index safakebk    -1
+index disneyfake   0
+index nrealbk1     15
+index nrealbk2     12
+index nrealbk3     10
