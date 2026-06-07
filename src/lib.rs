@@ -29,6 +29,9 @@ struct ViewerState {
     path: String,
     page: u16,
     count: u16,
+    /// Index into the current search results, so Prev/Next result can find the
+    /// neighboring song.
+    result_idx: usize,
 }
 
 #[cfg(target_os = "android")]
@@ -115,6 +118,47 @@ fn empty_results() -> slint::ModelRc<SongResult> {
     Rc::new(VecModel::<SongResult>::default()).into()
 }
 
+/// Open the search result at `idx` in the viewer. Both opening from the results
+/// list and stepping Prev/Next across results funnel through here.
+fn open_result_at(
+    ui: &AppWindow,
+    results: &Rc<RefCell<Vec<Song>>>,
+    viewer: &Rc<RefCell<Option<ViewerState>>>,
+    idx: usize,
+) {
+    let (song, total) = {
+        let results = results.borrow();
+        let Some(song) = results.get(idx).cloned() else {
+            return;
+        };
+        (song, results.len())
+    };
+    let path = song.file.to_string_lossy().into_owned();
+    log::info!(
+        "opening '{}' -> {} page {} ({path})",
+        song.title,
+        song.book,
+        song.page
+    );
+    let count = pdf::page_count(&path).unwrap_or(0);
+    let page = song.page.clamp(0, count.saturating_sub(1) as i32) as u16;
+
+    // Show only the book (PDF) name: the song title is in the page itself,
+    // and would be wrong once the user pages Prev/Next to another song.
+    ui.set_viewer_title(song.book.into());
+    ui.set_result_index(idx as i32);
+    ui.set_result_count(total as i32);
+    let state = ViewerState {
+        path,
+        page,
+        count,
+        result_idx: idx,
+    };
+    show_page(ui, &state);
+    *viewer.borrow_mut() = Some(state);
+    ui.set_viewer_visible(true);
+}
+
 pub fn tunecall_main() -> Result<(), Box<dyn Error>> {
     std::panic::set_hook(Box::new(|info| {
         log::error!("Panic occurred: {}", info);
@@ -176,26 +220,41 @@ pub fn tunecall_main() -> Result<(), Box<dyn Error>> {
         let viewer = viewer.clone();
         move |idx| {
             let ui = ui_handle.unwrap();
-            let Some(song) = results.borrow().get(idx as usize).cloned() else {
-                return;
-            };
-            let path = song.file.to_string_lossy().into_owned();
-            log::info!(
-                "opening '{}' -> {} page {} ({path})",
-                song.title,
-                song.book,
-                song.page
-            );
-            let count = pdf::page_count(&path).unwrap_or(0);
-            let page = song.page.clamp(0, count.saturating_sub(1) as i32) as u16;
+            open_result_at(&ui, &results, &viewer, idx as usize);
+        }
+    });
 
-            // Show only the book (PDF) name: the song title is in the page itself,
-            // and would be wrong once the user pages Prev/Next to another song.
-            ui.set_viewer_title(song.book.into());
-            let state = ViewerState { path, page, count };
-            show_page(&ui, &state);
-            *viewer.borrow_mut() = Some(state);
-            ui.set_viewer_visible(true);
+    ui.on_next_result({
+        let ui_handle = ui.as_weak();
+        let results = results.clone();
+        let viewer = viewer.clone();
+        move || {
+            let ui = ui_handle.unwrap();
+            let next = match viewer.borrow().as_ref() {
+                Some(state) if state.result_idx + 1 < results.borrow().len() => {
+                    Some(state.result_idx + 1)
+                }
+                _ => None,
+            };
+            if let Some(idx) = next {
+                open_result_at(&ui, &results, &viewer, idx);
+            }
+        }
+    });
+
+    ui.on_prev_result({
+        let ui_handle = ui.as_weak();
+        let results = results.clone();
+        let viewer = viewer.clone();
+        move || {
+            let ui = ui_handle.unwrap();
+            let prev = match viewer.borrow().as_ref() {
+                Some(state) if state.result_idx > 0 => Some(state.result_idx - 1),
+                _ => None,
+            };
+            if let Some(idx) = prev {
+                open_result_at(&ui, &results, &viewer, idx);
+            }
         }
     });
 
