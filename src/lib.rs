@@ -118,6 +118,19 @@ fn empty_results() -> slint::ModelRc<SongResult> {
     Rc::new(VecModel::<SongResult>::default()).into()
 }
 
+/// Populate the Books overlay list (every indexed book + whether its PDF is
+/// installed). Re-run after Reload so its effect shows there.
+fn refresh_books(ui: &AppWindow) {
+    let items: Vec<BookEntry> = db::list_books()
+        .into_iter()
+        .map(|b| BookEntry {
+            name: b.name.into(),
+            installed: b.has_pdf,
+        })
+        .collect();
+    ui.set_book_list(Rc::new(VecModel::from(items)).into());
+}
+
 /// Open the search result at `idx` in the viewer. Both opening from the results
 /// list and stepping Prev/Next across results funnel through here.
 fn open_result_at(
@@ -273,17 +286,28 @@ pub fn tunecall_main() -> Result<(), Box<dyn Error>> {
             let results = results.clone();
             if let Err(e) = slint::spawn_local(async_compat::Compat::new(async move {
                 let ui = ui_handle.unwrap();
-                match sync::download_indexes().await {
-                    Ok(n) => log::info!("downloaded {n} index file(s)"),
+                let download_err = match sync::download_indexes().await {
+                    Ok(n) => {
+                        log::info!("downloaded {n} index file(s)");
+                        None
+                    }
                     Err(e) => {
                         log::warn!("index download failed: {e}");
-                        ui.set_status(format!("Download failed: {e}").into());
-                        return;
+                        Some(e)
                     }
-                }
+                };
+                // Always rescan local files afterwards: installing a PDF is a
+                // local action and must be picked up even when the index
+                // download fails (e.g. offline).
                 results.borrow_mut().clear();
                 ui.set_results(empty_results());
                 reload_library(&ui, &library);
+                refresh_books(&ui);
+                // Report the download error last, so it isn't overwritten by the
+                // idle status `reload_library` sets on success.
+                if let Some(e) = download_err {
+                    ui.set_status(format!("Download failed: {e}").into());
+                }
             })) {
                 log::error!("failed to schedule download: {e}");
             }
@@ -318,6 +342,25 @@ pub fn tunecall_main() -> Result<(), Box<dyn Error>> {
                 state.page -= 1;
                 show_page(&ui, state);
             }
+        }
+    });
+
+    // Books = every indexed book, marking whether its PDF is installed. PDFs are
+    // not bundled (copyright), so this tells the user which PDFs they can install
+    // to enable a book. A setup-time aid, hence its own simple overlay.
+    ui.on_show_books({
+        let ui_handle = ui.as_weak();
+        move || {
+            let ui = ui_handle.unwrap();
+            refresh_books(&ui);
+            ui.set_books_visible(true);
+        }
+    });
+
+    ui.on_close_books({
+        let ui_handle = ui.as_weak();
+        move || {
+            ui_handle.unwrap().set_books_visible(false);
         }
     });
 

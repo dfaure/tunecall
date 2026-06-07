@@ -5,6 +5,11 @@ struct SongResult {
     subtitle: string, // book name
 }
 
+struct BookEntry {
+    name: string, // book stem (no extension)
+    installed: bool, // PDF present (searchable now) vs index-only
+}
+
 component ResultRow {
     in property <SongResult> data;
     callback clicked <=> touchArea.clicked;
@@ -43,6 +48,12 @@ export component AppWindow inherits Window {
     callback search(string);
     callback open-result(int); // index into `results`
     callback reload();
+
+    // --- books list (setup-time: which PDFs are indexed/supported) ---
+    in property <[BookEntry]> book-list;
+    in property <bool> books-visible: false;
+    callback show-books();
+    callback close-books();
 
     // --- viewer ---
     in property <bool> viewer-visible: false;
@@ -91,8 +102,8 @@ export component AppWindow inherits Window {
                 horizontal-stretch: 1;
             }
             Button {
-                text: "Reload";
-                clicked => { root.reload(); }
+                text: "Books";
+                clicked => { root.show-books(); }
             }
         }
 
@@ -200,6 +211,71 @@ export component AppWindow inherits Window {
                         color: white;
                         font-size: 16px;
                         horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+        }
+    }
+
+    // Books overlay (setup-time: shows which PDFs are indexed/supported)
+    if root.books-visible : Rectangle {
+        width: root.width;
+        height: root.height;
+        background: white;
+
+        VerticalLayout {
+            padding: 8px;
+            spacing: 6px;
+
+            HorizontalLayout {
+                spacing: 8px;
+                Text {
+                    text: "Supported books";
+                    font-weight: 700;
+                    vertical-alignment: center;
+                    horizontal-stretch: 1;
+                }
+                Button {
+                    text: "Reload";
+                    clicked => { root.reload(); }
+                }
+                Button {
+                    text: "Close";
+                    clicked => { root.close-books(); }
+                }
+            }
+
+            Text {
+                text: "Reload fetches the latest indexes. Install the matching PDF to enable a book; PDFs are not bundled.";
+                color: gray;
+                font-size: 16px;
+                wrap: word-wrap;
+            }
+
+            Text {
+                text: root.status;
+                color: gray;
+                font-size: 16px;
+                wrap: word-wrap;
+            }
+
+            booksList := ListView {
+                vertical-stretch: 1;
+                mouse-drag-pan-enabled: true;
+                horizontal-scrollbar-policy: always-off;
+                for book in root.book-list : HorizontalLayout {
+                    width: booksList.viewport-width;
+                    padding: 8px;
+                    spacing: 8px;
+                    Text {
+                        text: book.name;
+                        wrap: word-wrap;
+                        horizontal-stretch: 1;
+                    }
+                    Text {
+                        text: book.installed ? "installed" : "PDF missing";
+                        color: book.installed ? #2e7d32 : gray;
                         vertical-alignment: center;
                     }
                 }

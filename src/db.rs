@@ -25,11 +25,53 @@ pub struct Song {
     pub page: i32,
 }
 
+/// A book known to the app: it has an index (`<stem>.db`), and may or may not
+/// have its PDF installed yet.
+pub struct BookStatus {
+    /// Book display name (the `.db`/PDF file stem).
+    pub name: String,
+    /// Whether the matching PDF is present (i.e. the book is searchable now).
+    pub has_pdf: bool,
+}
+
 /// Load the library: PDFs come from `pdf_dir`; each book's `<stem>.db` is taken
 /// from `pdf_dir` first (locally authored), then `download_dir` (fetched by
 /// Reload). Books with no index yet are skipped.
 pub fn load_library() -> Result<Vec<Song>> {
     load_library_from(&storage::pdf_dir(), &storage::download_dir())
+}
+
+/// List every book that has an index, marking whether its PDF is installed.
+///
+/// PDFs are not shipped (copyright), so a fresh install has indexes but no PDFs.
+/// This is what tells the user which PDFs they *can* install: each `.db` (from
+/// `pdf_dir` or `download_dir`) is one supported book, `has_pdf` says if it's
+/// usable yet. Sorted by name, deduplicated case-insensitively by stem.
+pub fn list_books() -> Vec<BookStatus> {
+    list_books_from(&storage::pdf_dir(), &storage::download_dir())
+}
+
+fn list_books_from(pdf_dir: &Path, download_dir: &Path) -> Vec<BookStatus> {
+    let pdfs = list_with_ext(pdf_dir, "pdf");
+    let local_dbs = list_with_ext(pdf_dir, "db");
+    let downloaded_dbs = list_with_ext(download_dir, "db");
+
+    // Keyed by lowercase stem so the BTreeMap both sorts and dedups; the first
+    // occurrence (local before downloaded) keeps its original-case display name.
+    let mut books: std::collections::BTreeMap<String, BookStatus> =
+        std::collections::BTreeMap::new();
+    for db in local_dbs.iter().chain(downloaded_dbs.iter()) {
+        let Some(stem) = db.file_stem().and_then(|s| s.to_str()) else {
+            continue;
+        };
+        books
+            .entry(stem.to_lowercase())
+            .or_insert_with(|| BookStatus {
+                name: stem.to_string(),
+                has_pdf: find_by_stem(&pdfs, stem).is_some(),
+            });
+    }
+    books.into_values().collect()
 }
 
 fn load_library_from(pdf_dir: &Path, download_dir: &Path) -> Result<Vec<Song>> {
@@ -171,6 +213,37 @@ mod tests {
         assert_eq!(so_what.len(), 1);
         assert_eq!(so_what[0].page, 5);
         assert!(so_what[0].file.ends_with("Book Two.PDF"));
+
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    #[test]
+    fn lists_books_with_pdf_availability() {
+        let base = std::env::temp_dir().join(format!("tunecall-books-{}", std::process::id()));
+        let pdfs = base.join("pdfs");
+        let dl = base.join("downloaded");
+        std::fs::create_dir_all(&pdfs).unwrap();
+        std::fs::create_dir_all(&dl).unwrap();
+
+        // Installed: PDF + local index.
+        std::fs::write(pdfs.join("Installed.PDF"), b"%PDF-1.4").unwrap();
+        write_db(&pdfs.join("Installed.db"), &[("Song", 1)]);
+
+        // Downloaded index, no PDF yet -> listed but not installed.
+        write_db(&dl.join("Missing.db"), &[("Song", 1)]);
+
+        // Same stem in both db dirs -> one entry only.
+        write_db(&pdfs.join("Dup.db"), &[("Song", 1)]);
+        write_db(&dl.join("Dup.db"), &[("Song", 1)]);
+
+        let books = list_books_from(&pdfs, &dl);
+        assert_eq!(books.len(), 3); // Dup, Installed, Missing (sorted)
+        assert_eq!(books[0].name, "Dup");
+        assert!(!books[0].has_pdf);
+        assert_eq!(books[1].name, "Installed");
+        assert!(books[1].has_pdf);
+        assert_eq!(books[2].name, "Missing");
+        assert!(!books[2].has_pdf);
 
         std::fs::remove_dir_all(&base).ok();
     }
