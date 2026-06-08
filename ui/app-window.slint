@@ -7,6 +7,7 @@ struct SongResult {
 
 struct BookEntry {
     name: string, // book stem (no extension)
+    title: string, // human-readable title (empty if the index has none)
     installed: bool, // PDF present (searchable now) vs index-only
 }
 
@@ -268,10 +269,23 @@ export component AppWindow inherits Window {
                     width: booksList.viewport-width;
                     padding: 8px;
                     spacing: 8px;
-                    Text {
-                        text: book.name;
-                        wrap: word-wrap;
+                    // Title (from the index) on top, file stem underneath in
+                    // gray. When the index carries no title, the stem is the
+                    // only name we have, so it stands in as the main line.
+                    VerticalLayout {
                         horizontal-stretch: 1;
+                        spacing: 2px;
+                        Text {
+                            text: book.title != "" ? book.title : book.name;
+                            font-weight: 700;
+                            wrap: word-wrap;
+                        }
+                        if book.title != "" : Text {
+                            text: book.name;
+                            color: gray;
+                            font-size: 16px;
+                            wrap: word-wrap;
+                        }
                     }
                     Text {
                         text: book.installed ? "installed" : "PDF missing";

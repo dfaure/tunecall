@@ -12,36 +12,37 @@ set -euo pipefail
 PDF_DIR="${PDF_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/tunecall/pdfs}"
 
 index() {
-    cargo run -- --pdf "$PDF_DIR/$1.pdf" --offset "$2"
+    cargo run -- --pdf "$PDF_DIR/$1.pdf" --offset "$2" --title "$3"
 }
 
-#     <stem>      <offset>
-index realbk1h    -1
-index realbk2h     7
-index realbk3h     5
-index realbk4h    -1
-index realbk5h    -2
-index realbk6h    -2
-index crealbk1    13
-index 557standrd   7
-index reasybk      8
-index safakebk    -1
-index disneyfake   0
-index nrealbk1     15
-index nrealbk2     12
-index nrealbk3     10
-index befakebk      3
-index realxmasbk    0
-index rdixieland    0
-index creolejbfb    6
-index tpdxmasjfb    6
-index tnbobbook     7
-index gridjazz      1
-index bjazz50        0
-index juststanrb     0
-index rjstandfbk     1
-index dhpccs100t     0
-index lmjazz         4
-index realrockb2     0
-index strealbk      13
-index rbblues        0
+#     <stem>      <offset> <title (read off the cover)>
+index realbk1h    -1 "The Real Book, Vol. 1 (Sixth Edition)"
+index realbk2h     7 "The Real Book, Vol. 2"
+index realbk3h     5 "The Real Book, Vol. 3"
+index realbk4h    -1 "The Real Book, Vol. 4"
+index realbk5h    -2 "The Real Book, Vol. 5"
+index realbk6h    -2 "The Real Book, Vol. 6"
+index crealbk1    13 "The Real Book, Vol. 1 (Fifth Edition)"
+index 557standrd   7 "557 Standards"
+index reasybk      8 "The Real Easy Book"
+index safakebk    -1 "Straight Ahead Jazz Fakebook"
+index disneyfake   0 "Disney Fake Book"
+index nrealbk1     15 "The New Real Book, Vol. 1"
+index nrealbk2     12 "The New Real Book, Vol. 2"
+index nrealbk3     10 "The New Real Book, Vol. 3"
+index befakebk      3 "Bill Evans Fake Book"
+index realxmasbk    0 "The Real Christmas Book"
+index rdixieland    0 "The Real Dixieland Book"
+index creolejbfb    6 "The Creole Jazz Band Fake Book"
+index tpdxmasjfb    6 "The Public Domain Christmas Jazz Fakebook"
+index tnbobbook     7 "The New Bob Book"
+index gridjazz      1 "Anthologie des Grilles de Jazz"
+index bjazz50        0 "Jazz of the '50s"
+index juststanrb     0 "Just Standards Real Book"
+index rjstandfbk     1 "Real Jazz Standards Fake Book"
+index dhpccs100t     0 "Dick Hyman's Professional Chord Changes and Substitutions for 100 Tunes"
+index lmjazz         4 "Library of Musicians' Jazz"
+index realrockb2     0 "Real Rock Book 2"
+index strealbk      13 "The Standards Real Book"
+index rbblues        0 "The Real Book of Blues"
+index colcookbk      3 "The Colorado Cookbook"

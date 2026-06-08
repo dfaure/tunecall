@@ -125,6 +125,7 @@ fn refresh_books(ui: &AppWindow) {
         .into_iter()
         .map(|b| BookEntry {
             name: b.name.into(),
+            title: b.title.unwrap_or_default().into(),
             installed: b.has_pdf,
         })
         .collect();

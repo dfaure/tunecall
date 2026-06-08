@@ -30,6 +30,9 @@ pub struct Song {
 pub struct BookStatus {
     /// Book display name (the `.db`/PDF file stem).
     pub name: String,
+    /// Human-readable title from the DB's `meta` table (e.g. "The Real Book,
+    /// Vol. 1"), if the indexer recorded one. `None` for older DBs.
+    pub title: Option<String>,
     /// Whether the matching PDF is present (i.e. the book is searchable now).
     pub has_pdf: bool,
 }
@@ -68,10 +71,21 @@ fn list_books_from(pdf_dir: &Path, download_dir: &Path) -> Vec<BookStatus> {
             .entry(stem.to_lowercase())
             .or_insert_with(|| BookStatus {
                 name: stem.to_string(),
+                title: read_book_title(db),
                 has_pdf: find_by_stem(&pdfs, stem).is_some(),
             });
     }
     books.into_values().collect()
+}
+
+/// The human-readable book title from a DB's `meta` table (`key = 'title'`),
+/// or `None` if the table/row is absent (older DBs) or the DB can't be opened.
+fn read_book_title(db: &Path) -> Option<String> {
+    let conn = Connection::open(db).ok()?;
+    conn.query_row("SELECT value FROM meta WHERE key = 'title'", [], |r| {
+        r.get::<_, String>(0)
+    })
+    .ok()
 }
 
 fn load_library_from(pdf_dir: &Path, download_dir: &Path) -> Result<Vec<Song>> {
@@ -181,6 +195,15 @@ mod tests {
         }
     }
 
+    fn write_db_with_title(path: &Path, rows: &[(&str, i32)], title: &str) {
+        write_db(path, rows);
+        let conn = Connection::open(path).unwrap();
+        conn.execute_batch("CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT);")
+            .unwrap();
+        conn.execute("INSERT INTO meta VALUES ('title', ?1)", [title])
+            .unwrap();
+    }
+
     #[test]
     fn prefers_local_db_then_downloaded() {
         let base = std::env::temp_dir().join(format!("tunecall-test-{}", std::process::id()));
@@ -244,6 +267,31 @@ mod tests {
         assert!(books[1].has_pdf);
         assert_eq!(books[2].name, "Missing");
         assert!(!books[2].has_pdf);
+
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    #[test]
+    fn reads_book_title_from_meta_when_present() {
+        let base = std::env::temp_dir().join(format!("tunecall-titles-{}", std::process::id()));
+        let pdfs = base.join("pdfs");
+        let dl = base.join("downloaded");
+        std::fs::create_dir_all(&pdfs).unwrap();
+        std::fs::create_dir_all(&dl).unwrap();
+
+        // Titled: index has a meta title -> surfaced.
+        std::fs::write(pdfs.join("Titled.PDF"), b"%PDF-1.4").unwrap();
+        write_db_with_title(&pdfs.join("Titled.db"), &[("Song", 1)], "The Real Book, Vol. 1");
+
+        // Untitled: index without a meta table (older DB) -> None, no error.
+        write_db(&dl.join("Untitled.db"), &[("Song", 1)]);
+
+        let books = list_books_from(&pdfs, &dl);
+        assert_eq!(books.len(), 2); // Titled, Untitled (sorted)
+        assert_eq!(books[0].name, "Titled");
+        assert_eq!(books[0].title.as_deref(), Some("The Real Book, Vol. 1"));
+        assert_eq!(books[1].name, "Untitled");
+        assert_eq!(books[1].title, None);
 
         std::fs::remove_dir_all(&base).ok();
     }

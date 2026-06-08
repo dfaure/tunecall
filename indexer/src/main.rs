@@ -33,6 +33,11 @@ struct Args {
     #[arg(long, allow_hyphen_values = true, default_value_t = 0)]
     offset: i32,
 
+    /// Human-readable book title, recorded in the DB's `meta` table for the
+    /// viewer to display (e.g. "The Real Book, Vol. 1"). Read off the cover.
+    #[arg(long)]
+    title: Option<String>,
+
     /// Output DB. Default: "<pdf-stem>.db" next to the PDF.
     #[arg(long)]
     out: Option<PathBuf>,
@@ -111,7 +116,7 @@ fn main() -> Result<()> {
 
     let entries: Vec<(String, i32)> = rows.iter().map(|(_, t, s)| (t.clone(), *s)).collect();
     let out = args.out.unwrap_or_else(|| args.pdf.with_extension("db"));
-    db::write_index(&out, &entries)?;
+    db::write_index(&out, &entries, args.title.as_deref())?;
     println!("\nwrote {} entries to {}", entries.len(), out.display());
     Ok(())
 }
