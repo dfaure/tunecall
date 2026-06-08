@@ -55,10 +55,12 @@ Standalone package `tunecall-indexer` (not in the viewer's build). The scans are
 
 tesseract can't read these scans, so **Claude transcribes the TOC by reading rendered images** — there is no automated OCR step. To (re)index a book:
 
-1. Render the book's TOC pages to PNGs (1-based page numbers; 600 DPI makes the small page numbers legible):
+1. First skim the TOC at low DPI (`-r 100`) to find which pages it spans and how the columns are laid out, then render those pages at 600 DPI:
    `pdftoppm -f <first> -l <last> -png -r 600 <book>.pdf <prefix>` → `<prefix>-NNN.png`.
-2. **Read** each PNG (the Read tool renders images) and transcribe every entry as `<printed-page><TAB-or-space><title>` into `<stem>.index` next to the PDF. Titles are reliable; the **page numbers in dense dot-leader columns are the error-prone part** — cross-check against the (mostly increasing) sequence, and remember the printed page is the small right-margin number, not a scan page.
-3. Build: `cargo run -- --pdf <book>.pdf --offset N` (per-book offsets live in the git-ignored `indexer/index.sh`; a clamp warning usually means the offset is wrong).
+2. **Don't Read a full 600-DPI page directly** — the Read tool downscales a ~5000×7000 image to fit, which blurs the small **bold page numbers** and silently produces misreads (e.g. 183→184, 186→189, 264→266). Instead, `magick`-crop each column into **half-column-height tiles** (~25–30 entries each, e.g. `magick page.png -crop 2480x3300+X+Y +repage tile.png`) so each tile renders near native resolution, then Read the tiles. Transcribe every entry as `<printed-page><TAB-or-space><title>`. Titles are reliable; the **page numbers are the error-prone part** — the printed page is the small right-margin number, not a scan page, and it is *not* monotonic in alphabetical order (songs are placed to fit pages), so you cannot infer it from the sequence — read each one.
+3. Determine `--offset` **empirically, don't guess**: the indexer computes `render_page = printed + offset - 1` (0-based). Pick one song, render its scan page, and read the printed number at the page corner; solve for `offset`. For the common layout where the front cover is scan page 1 and printed numbers coincide with scan pages, `offset` is **0** (not -1).
+4. Build: `cargo run -- --pdf <book>.pdf --offset N` (per-book offsets live in `indexer/rebuild_db.sh`; a clamp warning usually means the offset is wrong). Add the book's `index <stem> <offset>` line there.
+5. **Verify before trusting it**: query a few rows (`sqlite3 <stem>.db "select page,title from songs where title in (...)"`), render each `page+1` (1-based scan page), and confirm the rendered title matches — especially any entries whose numbers looked duplicated or out of order, since those are exactly the misreads. A duplicate page number across two titles is almost always a transcription error; chase it down.
 
 Use `--dry-run` to preview. The `.index` and `.db` live in the data dir, never in git.
 
