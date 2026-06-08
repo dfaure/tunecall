@@ -52,10 +52,9 @@ cargo run -- --pdf ~/.local/share/tunecall/pdfs/realbk3h.pdf --offset 5 --title 
 - `--pdf` the book; its sibling `<stem>.index` supplies the entries.
 - `--offset` (1-based scan page) − (printed page); 0 if they match, e.g. `15` if
   printed page 1 is on scan page 16. May be negative.
-- `--title` the human-readable book name (read off the cover); stored in a
-  `meta(key,value)` table and shown in the viewer's Books list. Optional — the
-  viewer falls back to the file stem when absent — but `rebuild_db.sh` always
-  passes one.
+- `--title` (required) the human-readable book name (read off the cover); stored
+  in a `meta(key,value)` table and shown in the viewer's Books list. The viewer
+  falls back to the file stem only for older DBs that predate this field.
 - `--out` override the output DB path (default `<stem>.db`).
 - `--dry-run` resolve and print the entries without writing the DB.
 

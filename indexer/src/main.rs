@@ -36,7 +36,7 @@ struct Args {
     /// Human-readable book title, recorded in the DB's `meta` table for the
     /// viewer to display (e.g. "The Real Book, Vol. 1"). Read off the cover.
     #[arg(long)]
-    title: Option<String>,
+    title: String,
 
     /// Output DB. Default: "<pdf-stem>.db" next to the PDF.
     #[arg(long)]
@@ -116,7 +116,7 @@ fn main() -> Result<()> {
 
     let entries: Vec<(String, i32)> = rows.iter().map(|(_, t, s)| (t.clone(), *s)).collect();
     let out = args.out.unwrap_or_else(|| args.pdf.with_extension("db"));
-    db::write_index(&out, &entries, args.title.as_deref())?;
+    db::write_index(&out, &entries, &args.title)?;
     println!("\nwrote {} entries to {}", entries.len(), out.display());
     Ok(())
 }
