@@ -23,6 +23,11 @@ slint::include_modules!();
 /// to fit, so this is really a quality/sharpness knob.
 const RENDER_WIDTH: i32 = 1200;
 
+/// Cap on the rasterization upscale for pinch-zoom re-renders. Beyond ~2x the
+/// bitmap of a tall page would exceed common GPU texture size limits (4096px)
+/// and the pixel buffer gets very large.
+const MAX_RENDER_ZOOM: f32 = 2.0;
+
 /// Max search results shown at once.
 const SEARCH_LIMIT: usize = 300;
 
@@ -38,6 +43,9 @@ struct ViewerState {
     /// Index into the current nav list, so Prev/Next result can find the
     /// neighboring song.
     result_idx: usize,
+    /// Width the page is currently rasterized at (bumped by pinch-zoom
+    /// re-renders, reset to `RENDER_WIDTH` on every page change).
+    render_width: i32,
 }
 
 #[cfg(target_os = "android")]
@@ -105,12 +113,14 @@ fn set_idle_status(ui: &AppWindow, library: &Rc<RefCell<Vec<Song>>>) {
     }
 }
 
-/// Render the page described by `state` into the viewer.
+/// Render the page described by `state` into the viewer, at the width it was
+/// last rasterized at — so flipping pages while zoomed in (e.g. to crop the
+/// margins) keeps both the zoom and its sharpness.
 fn show_page(ui: &AppWindow, state: &ViewerState) {
     ui.set_viewer_error("".into());
     ui.set_page_number(state.page as i32 + 1);
     ui.set_page_count(state.count as i32);
-    match pdf::render_page(&state.path, state.page, RENDER_WIDTH) {
+    match pdf::render_page(&state.path, state.page, state.render_width) {
         Ok(img) => ui.set_page_image(img),
         Err(e) => {
             log::warn!("render_page failed: {e}");
@@ -245,11 +255,17 @@ fn open_result_at(
     ui.set_viewer_title(song.book.into());
     ui.set_result_index(idx as i32);
     ui.set_result_count(total as i32);
+    // A different song starts back at fit-to-window zoom (page flips within a
+    // song keep the zoom; see show_page).
+    ui.set_viewer_zoom(1.0);
+    ui.set_viewer_pan_x(0.0);
+    ui.set_viewer_pan_y(0.0);
     let state = ViewerState {
         path,
         page,
         count,
         result_idx: idx,
+        render_width: RENDER_WIDTH,
     };
     show_page(ui, &state);
     *viewer.borrow_mut() = Some(state);
@@ -451,6 +467,32 @@ pub fn tunecall_main() -> Result<(), Box<dyn Error>> {
             {
                 state.page += 1;
                 show_page(&ui, state);
+            }
+        }
+    });
+
+    // The UI asks for a sharper rasterization once a zoom gesture settles (and
+    // for the base width again when zoomed back out). Width changes only, so
+    // no-ops are skipped; failures keep the current (blurrier) image.
+    ui.on_render_zoomed({
+        let ui_handle = ui.as_weak();
+        let viewer = viewer.clone();
+        move |zoom| {
+            let ui = ui_handle.unwrap();
+            let mut slot = viewer.borrow_mut();
+            let Some(state) = slot.as_mut() else {
+                return;
+            };
+            let width = (RENDER_WIDTH as f32 * zoom.clamp(1.0, MAX_RENDER_ZOOM)).round() as i32;
+            if width == state.render_width {
+                return;
+            }
+            match pdf::render_page(&state.path, state.page, width) {
+                Ok(img) => {
+                    ui.set_page_image(img);
+                    state.render_width = width;
+                }
+                Err(e) => log::warn!("zoom re-render at width {width} failed: {e}"),
             }
         }
     });

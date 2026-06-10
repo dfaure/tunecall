@@ -137,6 +137,14 @@ export component AppWindow inherits Window {
     in property <int> result-index; // 0-based position of the open song in the nav list
     in property <int> result-count; // total number of songs being navigated
     in property <string> viewer-error;
+    // Zoom state (pinch / ctrl+wheel / double-tap). 1.0 = fit the page area;
+    // the pan offsets are the zoomed page's position inside it (always <= 0).
+    // Page flips keep the zoom (a margin crop survives across pages); Rust
+    // resets all three when a different song is opened.
+    in-out property <float> viewer-zoom: 1.0;
+    in-out property <length> viewer-pan-x;
+    in-out property <length> viewer-pan-y;
+    callback render-zoomed(float); // re-rasterize the page to suit this zoom
     callback prev-page(); // within the open PDF
     callback next-page();
     callback prev-result(); // across the nav list (search results or a setlist)
@@ -524,31 +532,125 @@ export component AppWindow inherits Window {
 
             // The page itself: tap the left/right half to flip pages within the
             // PDF, with a small page-number badge overlaid at the bottom.
-            Rectangle {
+            // Pinch (or ctrl+wheel, or double-tap) zooms; a single finger pans
+            // while zoomed in.
+            pageArea := Rectangle {
                 vertical-stretch: 1;
+                clip: true; // the zoomed page must not paint over the toolbar
 
-                Image {
-                    source: root.page-image;
-                    image-fit: contain;
-                    width: 100%;
-                    height: 100%;
+                // Gesture-start state, so every update rescales from the start
+                // values instead of accumulating per-frame rounding drift.
+                property <float> start-zoom: 1.0;
+                property <length> start-pan-x;
+                property <length> start-pan-y;
+
+                // Zoom to `new-zoom` (clamped) keeping the page point under
+                // (cx, cy) fixed on screen. old-* is the state the new zoom is
+                // relative to (gesture start, or the current state for wheel).
+                function zoom-to(new-zoom: float, cx: length, cy: length,
+                                 old-zoom: float, old-pan-x: length, old-pan-y: length) {
+                    root.viewer-zoom = clamp(new-zoom, 1.0, 4.0);
+                    root.viewer-pan-x = cx - (cx - old-pan-x) * root.viewer-zoom / old-zoom;
+                    root.viewer-pan-y = cy - (cy - old-pan-y) * root.viewer-zoom / old-zoom;
+                    self.clamp-pan();
+                    hiresTimer.restart();
+                }
+                // Keep the zoomed page covering the whole area (no gaps).
+                function clamp-pan() {
+                    root.viewer-pan-x = clamp(root.viewer-pan-x, self.width * (1 - root.viewer-zoom), 0px);
+                    root.viewer-pan-y = clamp(root.viewer-pan-y, self.height * (1 - root.viewer-zoom), 0px);
                 }
 
-                // Tap zones: left 0-20% = prev page, right 80-100% = next page.
-                // The middle 60% is intentionally inert for now.
-                TouchArea {
-                    x: 0;
-                    width: parent.width * 20%;
-                    height: 100%;
-                    enabled: root.page-number > 1;
-                    clicked => { root.prev-page(); }
+                // Re-rasterize sharper shortly after the zoom settles, not on
+                // every pinch frame (rendering is synchronous).
+                hiresTimer := Timer {
+                    interval: 300ms;
+                    running: false;
+                    triggered => {
+                        self.running = false;
+                        root.render-zoomed(root.viewer-zoom);
+                    }
                 }
-                TouchArea {
-                    x: parent.width * 80%;
-                    width: parent.width * 20%;
-                    height: 100%;
-                    enabled: root.page-number < root.page-count;
-                    clicked => { root.next-page(); }
+
+                gesture := ScaleRotateGestureHandler {
+                    started => {
+                        pageArea.start-zoom = root.viewer-zoom;
+                        pageArea.start-pan-x = root.viewer-pan-x;
+                        pageArea.start-pan-y = root.viewer-pan-y;
+                    }
+                    updated => {
+                        pageArea.zoom-to(pageArea.start-zoom * self.scale,
+                                         self.center.x, self.center.y,
+                                         pageArea.start-zoom, pageArea.start-pan-x, pageArea.start-pan-y);
+                    }
+
+                    Image {
+                        source: root.page-image;
+                        image-fit: contain;
+                        x: root.viewer-pan-x;
+                        y: root.viewer-pan-y;
+                        width: parent.width * root.viewer-zoom;
+                        height: parent.height * root.viewer-zoom;
+                    }
+
+                    // One surface for all single-pointer interaction: drag to
+                    // pan while zoomed in, tap the left/right 20% to flip pages
+                    // (at any zoom — a margin crop must not block page turns),
+                    // double-tap the middle to zoom in/out, ctrl+wheel to zoom
+                    // on desktop. Tap vs drag is decided by movement distance.
+                    panArea := TouchArea {
+                        property <length> press-pan-x;
+                        property <length> press-pan-y;
+                        // The release of a pan drag also fires `clicked`; only
+                        // treat it as a tap if the pointer barely moved.
+                        pure function is-tap() -> bool {
+                            Math.abs((self.mouse-x - self.pressed-x) / 1px) < 8
+                                && Math.abs((self.mouse-y - self.pressed-y) / 1px) < 8
+                        }
+                        changed pressed => {
+                            if (self.pressed) {
+                                self.press-pan-x = root.viewer-pan-x;
+                                self.press-pan-y = root.viewer-pan-y;
+                            }
+                        }
+                        moved => {
+                            if (root.viewer-zoom > 1.0) {
+                                root.viewer-pan-x = self.press-pan-x + (self.mouse-x - self.pressed-x);
+                                root.viewer-pan-y = self.press-pan-y + (self.mouse-y - self.pressed-y);
+                                pageArea.clamp-pan();
+                            }
+                        }
+                        clicked => {
+                            if (self.is-tap()) {
+                                if (self.pressed-x < self.width * 20% && root.page-number > 1) {
+                                    root.prev-page();
+                                } else if (self.pressed-x > self.width * 80% && root.page-number < root.page-count) {
+                                    root.next-page();
+                                }
+                            }
+                        }
+                        double-clicked => {
+                            // Middle 60% only: a double-tap on an edge zone is
+                            // two page flips, not a zoom toggle.
+                            if (self.pressed-x >= self.width * 20% && self.pressed-x <= self.width * 80%) {
+                                if (root.viewer-zoom > 1.0) {
+                                    pageArea.zoom-to(1.0, self.mouse-x, self.mouse-y,
+                                                     root.viewer-zoom, root.viewer-pan-x, root.viewer-pan-y);
+                                } else {
+                                    pageArea.zoom-to(2.5, self.mouse-x, self.mouse-y, 1.0, 0px, 0px);
+                                }
+                            }
+                        }
+                        scroll-event(e) => {
+                            if (e.modifiers.control) {
+                                pageArea.zoom-to(root.viewer-zoom * (e.delta-y > 0 ? 1.1 : 1 / 1.1),
+                                                 self.mouse-x, self.mouse-y,
+                                                 root.viewer-zoom, root.viewer-pan-x, root.viewer-pan-y);
+                                return accept;
+                            }
+                            reject
+                        }
+                    }
                 }
 
                 badge := Rectangle {

@@ -16,7 +16,6 @@ too degraded for OCR — see `indexer/README.md`). Per-book offsets/titles live 
 
 ## 1. Viewer UX (for real playing use)
 
-- [ ] Pinch-zoom / pan (currently fit-to-window only).
 - [ ] Swipe-to-turn-page (buttons only today); consider volume-key / pedal page
       turns for hands-free use mid-tune.
 - [ ] Accent-insensitive / fuzzy search (currently plain substring).

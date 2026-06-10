@@ -56,3 +56,5 @@ index rwlpfbk       -1 "Richard Wolfe's Legit Professional Fake Book"
 # bestfbevr2: printed 400 missing from scan and scan 498 duplicates printed 496,
 # so the .index entries for printed 401-497 are shifted down by 1.
 index bestfbevr2     1 "The Best Fake Book Ever (2nd Edition)"
+index braziljrbk    14 "Brazilian Jazz Real Book"
+index eurealbk       7 "The European Real Book"
