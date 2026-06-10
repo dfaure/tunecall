@@ -491,11 +491,14 @@ pub fn tunecall_main() -> Result<(), Box<dyn Error>> {
         }
     });
 
+    // The name applies live as the editor's field is typed in. We deliberately
+    // do NOT call `refresh_editor` here: that would push `editing-name` back into
+    // the field mid-edit and jump the caret. Empty input is ignored so clearing
+    // the field to retype keeps the last good name. Only the list view (which
+    // shows the name) needs refreshing.
     ui.on_rename_setlist({
         let ui_handle = ui.as_weak();
         let setlists = setlists.clone();
-        let editing = editing.clone();
-        let book_titles = book_titles.clone();
         move |idx, new_name| {
             let ui = ui_handle.unwrap();
             let new_name = new_name.trim().to_string();
@@ -507,7 +510,6 @@ pub fn tunecall_main() -> Result<(), Box<dyn Error>> {
             }
             save_setlists(&setlists);
             refresh_setlists(&ui, &setlists);
-            refresh_editor(&ui, &setlists, &editing, &book_titles);
         }
     });
 

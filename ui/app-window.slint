@@ -263,14 +263,14 @@ export component AppWindow inherits Window {
                     HorizontalLayout {
                         vertical-stretch: 0;
                         spacing: 8px;
+                        // The name applies live as you type (no separate Rename
+                        // button to forget). Rust skips empty input, so clearing
+                        // the field to retype never wipes the stored name; it also
+                        // doesn't write the name back here, so the caret is stable.
                         editName := LineEdit {
                             text: root.editing-name;
                             horizontal-stretch: 1;
-                        }
-                        Button {
-                            text: "Rename";
-                            enabled: editName.text != "";
-                            clicked => { root.rename-setlist(root.editing-index, editName.text); }
+                            edited(text) => { root.rename-setlist(root.editing-index, text); }
                         }
                         Button {
                             text: "Close";
