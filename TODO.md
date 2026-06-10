@@ -4,21 +4,17 @@ Open work, roughly by priority. (The missing-pages / per-page-number problem is
 intentionally dropped: the current PDF set doesn't have that issue, so a single
 per-book `--offset` is sufficient.)
 
-## Index — done
+## Index
 
-All five books are indexed via a transcribed `<stem>.index` sidecar (the scans
-are too degraded for OCR — see `indexer/README.md`). Per-book offsets are
-recorded in `indexer/index.sh` (1h −1, 2h 7, 3h 5, 4h −1, 5h −2).
+All books are indexed via a transcribed `<stem>.index` sidecar (the scans are
+too degraded for OCR — see `indexer/README.md`). Per-book offsets/titles live in
+`indexer/rebuild_db.sh`.
 
 - [ ] Spot-check the vision-transcribed entries — titles are reliable, but some
-      page numbers were best-effort reads (worst in **2h**, the most degraded
-      scan). Fix any wrong page directly in the `.index` and re-run.
+      page numbers were best-effort reads (worst in the most degraded scans).
+      Fix any wrong page directly in the `.index` and re-run.
 
-## 1. Android (main target)
-
-- [ ] Note the Termux debug-keystore path hardcoded in `app/build.gradle`.
-
-## 2. Viewer UX (for real playing use)
+## 1. Viewer UX (for real playing use)
 
 - [ ] Pinch-zoom / pan (currently fit-to-window only).
 - [ ] Swipe-to-turn-page (buttons only today); consider volume-key / pedal page
@@ -27,11 +23,25 @@ recorded in `indexer/index.sh` (1h −1, 2h 7, 3h 5, 4h −1, 5h −2).
 - [ ] Render off the UI thread + prefetch/cache the next page (avoid jank on
       large pages, especially on Android).
 
-## 3. Polish
+## 2. End-user onboarding
 
-- [ ] Friendlier book display names in results (currently the PDF file stem).
+- [ ] In-app PDF import via the system file picker (SAF), so users don't have to
+      copy files over USB. Until then, the USB flow is documented in
+      `docs/adding-your-pdfs.md`.
 
-## 4. Features
+## 3. Publishing to Google Play
 
-- [ ] Set lists
+Build/packaging gates are done in-repo (App Bundle, SDK 35, AGP 8.7, manifest
+permissions, signing wired to `keystore.properties`). Remaining steps are
+external — see `docs/PLAY_PUBLISHING.md` and `docs/RELEASE_SIGNING.md`:
 
+- [ ] Create the release/upload keystore + `keystore.properties` (RELEASE_SIGNING.md).
+- [ ] Privacy policy URL + Data Safety form (ideally serve the index download
+      over HTTPS instead of `http://`).
+- [ ] Store listing: 512×512 icon, feature graphic, screenshots, description
+      (with the "you supply your own PDFs" framing); content rating; dev account.
+
+## Done
+
+- Set lists (create / rename / edit / reorder / play).
+- Friendly book display names in results and lists (from the DB `meta` title).

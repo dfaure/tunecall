@@ -1,16 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
+    <!-- INTERNET is used by Reload to download song indexes. No storage
+         permission is needed: PDFs/indexes live in the app-specific external
+         dir (getExternalFilesDir), readable/writable without permission and
+         reachable over USB/MTP for the user to drop PDFs in. -->
     <uses-permission android:name="android.permission.INTERNET" />
 
     <application
         android:extractNativeLibs="false"
-        android:requestLegacyExternalStorage="true"
         android:allowBackup="true"
-        android:icon="@drawable/tunecall"
+        android:icon="@mipmap/ic_launcher"
         android:label="TuneCall for Android"
-        android:roundIcon="@drawable/tunecall"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@android:style/Theme.NoTitleBar.Fullscreen">
         <activity

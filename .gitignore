@@ -9,6 +9,11 @@
 .gradle
 local.properties
 
+# release signing secrets (see docs/RELEASE_SIGNING.md)
+keystore.properties
+*.keystore
+*.jks
+
 # build artefacts
 *.so
 **/jniLibs
