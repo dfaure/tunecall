@@ -2,6 +2,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::error::Error;
 use std::rc::Rc;
 
@@ -9,6 +10,7 @@ use slint::{Image, VecModel};
 
 mod db;
 mod pdf;
+mod setlist;
 mod storage;
 mod sync;
 
@@ -24,12 +26,16 @@ const RENDER_WIDTH: i32 = 1200;
 /// Max search results shown at once.
 const SEARCH_LIMIT: usize = 300;
 
+/// Tab indices (must match the `Tab` order in `app-window.slint`).
+const TAB_SEARCH: i32 = 0;
+const TAB_BOOKS: i32 = 2;
+
 /// What's currently shown in the viewer.
 struct ViewerState {
     path: String,
     page: u16,
     count: u16,
-    /// Index into the current search results, so Prev/Next result can find the
+    /// Index into the current nav list, so Prev/Next result can find the
     /// neighboring song.
     result_idx: usize,
 }
@@ -132,20 +138,97 @@ fn refresh_books(ui: &AppWindow) {
     ui.set_book_list(Rc::new(VecModel::from(items)).into());
 }
 
-/// Open the search result at `idx` in the viewer. Both opening from the results
-/// list and stepping Prev/Next across results funnel through here.
+/// (Re)build the book stem → friendly title map from the indexed books, so the
+/// UI can show "557 Standards" instead of the cryptic "557standrd" stem.
+fn refresh_book_titles(titles: &Rc<RefCell<HashMap<String, String>>>) {
+    let mut map = HashMap::new();
+    for b in db::list_books() {
+        if let Some(t) = b.title {
+            map.insert(b.name.to_lowercase(), t);
+        }
+    }
+    *titles.borrow_mut() = map;
+}
+
+/// "Book Title · p.N" for a song row, using the friendly title where known (the
+/// file stem otherwise). N is the 1-based render page the viewer shows.
+fn book_subtitle(titles: &HashMap<String, String>, stem: &str, page: i32) -> String {
+    let label = titles
+        .get(&stem.to_lowercase())
+        .cloned()
+        .unwrap_or_else(|| stem.to_string());
+    format!("{label} · p.{}", page + 1)
+}
+
+/// Push the setlist list (name + song count) to the Setlists tab.
+fn refresh_setlists(ui: &AppWindow, setlists: &Rc<RefCell<Vec<setlist::Setlist>>>) {
+    let items: Vec<SetlistEntry> = setlists
+        .borrow()
+        .iter()
+        .map(|s| SetlistEntry {
+            name: s.name.clone().into(),
+            song_count: s.songs.len() as i32,
+        })
+        .collect();
+    ui.set_setlists(Rc::new(VecModel::from(items)).into());
+}
+
+/// Reflect the currently edited setlist (if any) into the editor properties.
+/// `editing == None` collapses the editor back to the setlist list view
+/// (`editing-index = -1`). Each song's `available` flag is whether its PDF is
+/// installed (else it shows greyed and opens to a render error).
+fn refresh_editor(
+    ui: &AppWindow,
+    setlists: &Rc<RefCell<Vec<setlist::Setlist>>>,
+    editing: &Rc<RefCell<Option<usize>>>,
+    titles: &Rc<RefCell<HashMap<String, String>>>,
+) {
+    let lists = setlists.borrow();
+    let current = (*editing.borrow()).and_then(|i| lists.get(i).map(|sl| (i, sl)));
+    if let Some((i, sl)) = current {
+        let titles = titles.borrow();
+        ui.set_editing_index(i as i32);
+        ui.set_editing_name(sl.name.clone().into());
+        let songs: Vec<SetlistSongEntry> = sl
+            .songs
+            .iter()
+            .map(|s| SetlistSongEntry {
+                title: s.title.clone().into(),
+                subtitle: book_subtitle(&titles, &s.book, s.page).into(),
+                available: db::resolve_pdf(&s.book).is_some(),
+            })
+            .collect();
+        ui.set_editing_songs(Rc::new(VecModel::from(songs)).into());
+    } else {
+        ui.set_editing_index(-1);
+        ui.set_editing_name("".into());
+        ui.set_editing_songs(Rc::new(VecModel::<SetlistSongEntry>::default()).into());
+    }
+}
+
+/// Persist setlists, logging (but not surfacing) failures — a failed save must
+/// not block the edit the user just made.
+fn save_setlists(setlists: &Rc<RefCell<Vec<setlist::Setlist>>>) {
+    if let Err(e) = setlist::save(&setlists.borrow()) {
+        log::warn!("saving setlists failed: {e}");
+    }
+}
+
+/// Open the song at `idx` of the current nav list in the viewer. The nav list is
+/// whatever the viewer is stepping through — the search hits or a setlist's
+/// songs. Opening from a list and stepping Prev/Next both funnel through here.
 fn open_result_at(
     ui: &AppWindow,
-    results: &Rc<RefCell<Vec<Song>>>,
+    nav: &Rc<RefCell<Vec<Song>>>,
     viewer: &Rc<RefCell<Option<ViewerState>>>,
     idx: usize,
 ) {
     let (song, total) = {
-        let results = results.borrow();
-        let Some(song) = results.get(idx).cloned() else {
+        let nav = nav.borrow();
+        let Some(song) = nav.get(idx).cloned() else {
             return;
         };
-        (song, results.len())
+        (song, nav.len())
     };
     let path = song.file.to_string_lossy().into_owned();
     log::info!(
@@ -193,12 +276,39 @@ pub fn tunecall_main() -> Result<(), Box<dyn Error>> {
     let results: Rc<RefCell<Vec<Song>>> = Rc::new(RefCell::new(Vec::new()));
     let viewer: Rc<RefCell<Option<ViewerState>>> = Rc::new(RefCell::new(None));
 
+    // The list the viewer is currently stepping through (search hits or a
+    // setlist's songs). Kept separate from `results` so the Search tab's
+    // displayed list and the viewer's Prev/Next can't desync.
+    let nav: Rc<RefCell<Vec<Song>>> = Rc::new(RefCell::new(Vec::new()));
+
+    // Setlists: the app's only writable user data, loaded from disk. `editing`
+    // is the index of the setlist open in the editor (None = list view);
+    // `add_hits` backs the in-editor "add songs" search.
+    let setlists: Rc<RefCell<Vec<setlist::Setlist>>> = Rc::new(RefCell::new(setlist::load()));
+    let editing: Rc<RefCell<Option<usize>>> = Rc::new(RefCell::new(None));
+    let add_hits: Rc<RefCell<Vec<Song>>> = Rc::new(RefCell::new(Vec::new()));
+
+    // Book stem → friendly title (for "557 Standards · p.34" instead of stems).
+    let book_titles: Rc<RefCell<HashMap<String, String>>> = Rc::new(RefCell::new(HashMap::new()));
+
     reload_library(&ui, &library);
+    refresh_book_titles(&book_titles);
+    refresh_books(&ui);
+    refresh_setlists(&ui, &setlists);
+    refresh_editor(&ui, &setlists, &editing, &book_titles);
+    // Land on the Books tab when nothing is installed yet (fresh setup needs
+    // PDFs), otherwise the Search tab.
+    ui.set_active_tab(if library.borrow().is_empty() {
+        TAB_BOOKS
+    } else {
+        TAB_SEARCH
+    });
 
     ui.on_search({
         let ui_handle = ui.as_weak();
         let library = library.clone();
         let results = results.clone();
+        let book_titles = book_titles.clone();
         move |text| {
             let ui = ui_handle.unwrap();
             let query = text.trim();
@@ -209,12 +319,13 @@ pub fn tunecall_main() -> Result<(), Box<dyn Error>> {
                 return;
             }
             let lib = library.borrow();
+            let titles = book_titles.borrow();
             let hits = db::search(&lib, query, SEARCH_LIMIT);
             let items: Vec<SongResult> = hits
                 .iter()
                 .map(|s| SongResult {
                     title: s.title.clone().into(),
-                    subtitle: s.book.clone().into(),
+                    subtitle: book_subtitle(&titles, &s.book, s.page).into(),
                 })
                 .collect();
             let n = items.len();
@@ -231,34 +342,37 @@ pub fn tunecall_main() -> Result<(), Box<dyn Error>> {
     ui.on_open_result({
         let ui_handle = ui.as_weak();
         let results = results.clone();
+        let nav = nav.clone();
         let viewer = viewer.clone();
         move |idx| {
             let ui = ui_handle.unwrap();
-            open_result_at(&ui, &results, &viewer, idx as usize);
+            // The viewer navigates the current search hits.
+            *nav.borrow_mut() = results.borrow().clone();
+            open_result_at(&ui, &nav, &viewer, idx as usize);
         }
     });
 
     ui.on_next_result({
         let ui_handle = ui.as_weak();
-        let results = results.clone();
+        let nav = nav.clone();
         let viewer = viewer.clone();
         move || {
             let ui = ui_handle.unwrap();
             let next = match viewer.borrow().as_ref() {
-                Some(state) if state.result_idx + 1 < results.borrow().len() => {
+                Some(state) if state.result_idx + 1 < nav.borrow().len() => {
                     Some(state.result_idx + 1)
                 }
                 _ => None,
             };
             if let Some(idx) = next {
-                open_result_at(&ui, &results, &viewer, idx);
+                open_result_at(&ui, &nav, &viewer, idx);
             }
         }
     });
 
     ui.on_prev_result({
         let ui_handle = ui.as_weak();
-        let results = results.clone();
+        let nav = nav.clone();
         let viewer = viewer.clone();
         move || {
             let ui = ui_handle.unwrap();
@@ -267,7 +381,7 @@ pub fn tunecall_main() -> Result<(), Box<dyn Error>> {
                 _ => None,
             };
             if let Some(idx) = prev {
-                open_result_at(&ui, &results, &viewer, idx);
+                open_result_at(&ui, &nav, &viewer, idx);
             }
         }
     });
@@ -279,12 +393,18 @@ pub fn tunecall_main() -> Result<(), Box<dyn Error>> {
         let ui_handle = ui.as_weak();
         let library = library.clone();
         let results = results.clone();
+        let setlists = setlists.clone();
+        let editing = editing.clone();
+        let book_titles = book_titles.clone();
         move || {
             let ui = ui_handle.unwrap();
             ui.set_status("Downloading indexes…".into());
             let ui_handle = ui_handle.clone();
             let library = library.clone();
             let results = results.clone();
+            let setlists = setlists.clone();
+            let editing = editing.clone();
+            let book_titles = book_titles.clone();
             if let Err(e) = slint::spawn_local(async_compat::Compat::new(async move {
                 let ui = ui_handle.unwrap();
                 let download_err = match sync::download_indexes().await {
@@ -303,7 +423,11 @@ pub fn tunecall_main() -> Result<(), Box<dyn Error>> {
                 results.borrow_mut().clear();
                 ui.set_results(empty_results());
                 reload_library(&ui, &library);
+                refresh_book_titles(&book_titles);
                 refresh_books(&ui);
+                // Installing a PDF can change a setlist song's availability.
+                refresh_setlists(&ui, &setlists);
+                refresh_editor(&ui, &setlists, &editing, &book_titles);
                 // Report the download error last, so it isn't overwritten by the
                 // idle status `reload_library` sets on success.
                 if let Some(e) = download_err {
@@ -346,22 +470,249 @@ pub fn tunecall_main() -> Result<(), Box<dyn Error>> {
         }
     });
 
-    // Books = every indexed book, marking whether its PDF is installed. PDFs are
-    // not bundled (copyright), so this tells the user which PDFs they can install
-    // to enable a book. A setup-time aid, hence its own simple overlay.
-    ui.on_show_books({
+    // --- Setlists: create / rename / delete / edit / reorder / play. Every
+    // mutation persists immediately (save_setlists) then refreshes the models.
+
+    ui.on_create_setlist({
         let ui_handle = ui.as_weak();
-        move || {
+        let setlists = setlists.clone();
+        move |name| {
             let ui = ui_handle.unwrap();
-            refresh_books(&ui);
-            ui.set_books_visible(true);
+            let name = name.trim().to_string();
+            if name.is_empty() {
+                return;
+            }
+            setlists.borrow_mut().push(setlist::Setlist {
+                name,
+                songs: Vec::new(),
+            });
+            save_setlists(&setlists);
+            refresh_setlists(&ui, &setlists);
         }
     });
 
-    ui.on_close_books({
+    ui.on_rename_setlist({
         let ui_handle = ui.as_weak();
+        let setlists = setlists.clone();
+        let editing = editing.clone();
+        let book_titles = book_titles.clone();
+        move |idx, new_name| {
+            let ui = ui_handle.unwrap();
+            let new_name = new_name.trim().to_string();
+            if new_name.is_empty() {
+                return;
+            }
+            if let Some(sl) = setlists.borrow_mut().get_mut(idx as usize) {
+                sl.name = new_name;
+            }
+            save_setlists(&setlists);
+            refresh_setlists(&ui, &setlists);
+            refresh_editor(&ui, &setlists, &editing, &book_titles);
+        }
+    });
+
+    ui.on_delete_setlist({
+        let ui_handle = ui.as_weak();
+        let setlists = setlists.clone();
+        move |idx| {
+            let ui = ui_handle.unwrap();
+            let i = idx as usize;
+            {
+                let mut lists = setlists.borrow_mut();
+                if i < lists.len() {
+                    lists.remove(i);
+                }
+            }
+            save_setlists(&setlists);
+            refresh_setlists(&ui, &setlists);
+        }
+    });
+
+    ui.on_edit_setlist({
+        let ui_handle = ui.as_weak();
+        let setlists = setlists.clone();
+        let editing = editing.clone();
+        let add_hits = add_hits.clone();
+        let book_titles = book_titles.clone();
+        move |idx| {
+            let ui = ui_handle.unwrap();
+            *editing.borrow_mut() = Some(idx as usize);
+            add_hits.borrow_mut().clear();
+            ui.set_add_results(empty_results());
+            refresh_editor(&ui, &setlists, &editing, &book_titles);
+        }
+    });
+
+    ui.on_close_setlist_editor({
+        let ui_handle = ui.as_weak();
+        let setlists = setlists.clone();
+        let editing = editing.clone();
+        let book_titles = book_titles.clone();
         move || {
-            ui_handle.unwrap().set_books_visible(false);
+            let ui = ui_handle.unwrap();
+            *editing.borrow_mut() = None;
+            refresh_editor(&ui, &setlists, &editing, &book_titles);
+        }
+    });
+
+    ui.on_play_setlist({
+        let ui_handle = ui.as_weak();
+        let setlists = setlists.clone();
+        let nav = nav.clone();
+        let viewer = viewer.clone();
+        move |idx| {
+            let ui = ui_handle.unwrap();
+            let songs: Vec<Song> = {
+                let lists = setlists.borrow();
+                let Some(sl) = lists.get(idx as usize) else {
+                    return;
+                };
+                sl.songs
+                    .iter()
+                    .map(|s| Song {
+                        title: s.title.clone(),
+                        book: s.book.clone(),
+                        file: db::resolve_pdf(&s.book).unwrap_or_default(),
+                        page: s.page,
+                    })
+                    .collect()
+            };
+            if songs.is_empty() {
+                return;
+            }
+            *nav.borrow_mut() = songs;
+            open_result_at(&ui, &nav, &viewer, 0);
+        }
+    });
+
+    ui.on_setlist_add_search({
+        let ui_handle = ui.as_weak();
+        let library = library.clone();
+        let add_hits = add_hits.clone();
+        let book_titles = book_titles.clone();
+        move |text| {
+            let ui = ui_handle.unwrap();
+            let query = text.trim();
+            if query.is_empty() {
+                add_hits.borrow_mut().clear();
+                ui.set_add_results(empty_results());
+                return;
+            }
+            let lib = library.borrow();
+            let titles = book_titles.borrow();
+            let hits = db::search(&lib, query, SEARCH_LIMIT);
+            let items: Vec<SongResult> = hits
+                .iter()
+                .map(|s| SongResult {
+                    title: s.title.clone().into(),
+                    subtitle: book_subtitle(&titles, &s.book, s.page).into(),
+                })
+                .collect();
+            ui.set_add_results(Rc::new(VecModel::from(items)).into());
+            *add_hits.borrow_mut() = hits.into_iter().cloned().collect();
+        }
+    });
+
+    ui.on_setlist_add_song({
+        let ui_handle = ui.as_weak();
+        let setlists = setlists.clone();
+        let editing = editing.clone();
+        let add_hits = add_hits.clone();
+        let book_titles = book_titles.clone();
+        move |ri| {
+            let ui = ui_handle.unwrap();
+            let Some(song) = add_hits.borrow().get(ri as usize).cloned() else {
+                return;
+            };
+            let Some(i) = *editing.borrow() else {
+                return;
+            };
+            if let Some(sl) = setlists.borrow_mut().get_mut(i) {
+                sl.songs.push(setlist::SetlistSong {
+                    title: song.title,
+                    book: song.book,
+                    page: song.page,
+                });
+            }
+            save_setlists(&setlists);
+            refresh_editor(&ui, &setlists, &editing, &book_titles);
+            refresh_setlists(&ui, &setlists);
+        }
+    });
+
+    ui.on_preview_song({
+        let ui_handle = ui.as_weak();
+        let add_hits = add_hits.clone();
+        let nav = nav.clone();
+        let viewer = viewer.clone();
+        move |ri| {
+            let ui = ui_handle.unwrap();
+            // add_hits are library songs (their PDF is installed), so the viewer
+            // can render them straight away. A single-song nav list disables
+            // Prev/Next-result.
+            let Some(song) = add_hits.borrow().get(ri as usize).cloned() else {
+                return;
+            };
+            *nav.borrow_mut() = vec![song];
+            open_result_at(&ui, &nav, &viewer, 0);
+        }
+    });
+
+    ui.on_setlist_remove_song({
+        let ui_handle = ui.as_weak();
+        let setlists = setlists.clone();
+        let editing = editing.clone();
+        let book_titles = book_titles.clone();
+        move |i| {
+            let ui = ui_handle.unwrap();
+            let Some(idx) = *editing.borrow() else {
+                return;
+            };
+            if let Some(sl) = setlists.borrow_mut().get_mut(idx) {
+                let j = i as usize;
+                if j < sl.songs.len() {
+                    sl.songs.remove(j);
+                }
+            }
+            save_setlists(&setlists);
+            refresh_editor(&ui, &setlists, &editing, &book_titles);
+            refresh_setlists(&ui, &setlists);
+        }
+    });
+
+    ui.on_setlist_move_up({
+        let ui_handle = ui.as_weak();
+        let setlists = setlists.clone();
+        let editing = editing.clone();
+        let book_titles = book_titles.clone();
+        move |i| {
+            let ui = ui_handle.unwrap();
+            let Some(idx) = *editing.borrow() else {
+                return;
+            };
+            if let Some(sl) = setlists.borrow_mut().get_mut(idx) {
+                setlist::move_up(&mut sl.songs, i as usize);
+            }
+            save_setlists(&setlists);
+            refresh_editor(&ui, &setlists, &editing, &book_titles);
+        }
+    });
+
+    ui.on_setlist_move_down({
+        let ui_handle = ui.as_weak();
+        let setlists = setlists.clone();
+        let editing = editing.clone();
+        let book_titles = book_titles.clone();
+        move |i| {
+            let ui = ui_handle.unwrap();
+            let Some(idx) = *editing.borrow() else {
+                return;
+            };
+            if let Some(sl) = setlists.borrow_mut().get_mut(idx) {
+                setlist::move_down(&mut sl.songs, i as usize);
+            }
+            save_setlists(&setlists);
+            refresh_editor(&ui, &setlists, &editing, &book_titles);
         }
     });
 

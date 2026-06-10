@@ -123,6 +123,19 @@ fn list_with_ext(dir: &Path, ext: &str) -> Vec<PathBuf> {
         .collect()
 }
 
+/// Absolute path of an installed PDF by its stem (case-insensitive), or `None`
+/// if no `<stem>.pdf` is in `pdf_dir`. Setlists store only the stem, so this
+/// turns a setlist entry back into an openable file (PDFs live in `pdf_dir`
+/// only; `download_dir` holds just `.db` indexes).
+pub fn resolve_pdf(stem: &str) -> Option<PathBuf> {
+    resolve_pdf_in(&storage::pdf_dir(), stem)
+}
+
+fn resolve_pdf_in(pdf_dir: &Path, stem: &str) -> Option<PathBuf> {
+    let pdfs = list_with_ext(pdf_dir, "pdf");
+    find_by_stem(&pdfs, stem).map(Path::to_path_buf)
+}
+
 /// First file whose stem matches `stem` (case-insensitive).
 fn find_by_stem<'a>(files: &'a [PathBuf], stem: &str) -> Option<&'a Path> {
     files
@@ -294,5 +307,18 @@ mod tests {
         assert_eq!(books[1].title, None);
 
         std::fs::remove_dir_all(&base).ok();
+    }
+
+    #[test]
+    fn resolve_pdf_matches_stem_case_insensitively() {
+        let dir = std::env::temp_dir().join(format!("tunecall-resolve-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("RealBk1h.PDF"), b"%PDF-1.4").unwrap();
+
+        assert_eq!(resolve_pdf_in(&dir, "realbk1h"), Some(dir.join("RealBk1h.PDF")));
+        assert_eq!(resolve_pdf_in(&dir, "REALBK1H"), Some(dir.join("RealBk1h.PDF")));
+        assert_eq!(resolve_pdf_in(&dir, "missing"), None);
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

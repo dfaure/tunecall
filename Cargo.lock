@@ -5203,6 +5203,8 @@ dependencies = [
  "pdfium-render",
  "reqwest",
  "rusqlite",
+ "serde",
+ "serde_json",
  "slint",
  "slint-build",
  "tracing",

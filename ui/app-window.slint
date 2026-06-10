@@ -1,14 +1,58 @@
-import { Button, LineEdit, ListView } from "std-widgets.slint";
+import { Button, LineEdit, ListView, TabWidget } from "std-widgets.slint";
 
 struct SongResult {
     title: string,
-    subtitle: string, // book name
+    subtitle: string, // book title · page
 }
 
 struct BookEntry {
     name: string, // book stem (no extension)
     title: string, // human-readable title (empty if the index has none)
     installed: bool, // PDF present (searchable now) vs index-only
+}
+
+struct SetlistEntry {
+    name: string,
+    song-count: int,
+}
+
+struct SetlistSongEntry {
+    title: string,
+    subtitle: string, // book title · page (the stem if no friendly title)
+    available: bool, // matching PDF installed (else greyed, opens to a render error)
+}
+
+// Hairline dividers. HSeparator is a horizontal line (full width, 1px tall) for
+// separating stacked rows; VSeparator is a vertical line (1px wide, full height)
+// for separating side-by-side columns. Each leaves the other dimension to fill,
+// so don't swap them — a fixed size on the wrong axis breaks the parent layout.
+component HSeparator inherits Rectangle {
+    height: 1px;
+    background: #0000001a;
+}
+
+component VSeparator inherits Rectangle {
+    width: 1px;
+    background: #0000001a;
+}
+
+// One row of a ListView: a hover highlight, the row content (laid out
+// horizontally via @children), and a hairline bottom separator. Used by every
+// list so rows read as discrete units instead of floating text.
+component ListRow inherits Rectangle {
+    height: content.preferred-height;
+    background: hover.has-hover ? #00000008 : transparent;
+
+    hover := TouchArea { }
+    content := HorizontalLayout {
+        padding: 8px;
+        spacing: 6px;
+        @children
+    }
+    HSeparator {
+        y: parent.height - self.height;
+        width: 100%;
+    }
 }
 
 component ResultRow {
@@ -30,8 +74,15 @@ component ResultRow {
                     text: data.subtitle;
                     color: gray;
                     font-size: 16px;
+                    // Elide instead of demanding full width (a long book title
+                    // must not push trailing buttons off-screen).
+                    overflow: elide;
                 }
             }
+        }
+        HSeparator {
+            y: parent.height - self.height;
+            width: 100%;
         }
     }
 }
@@ -43,6 +94,11 @@ export component AppWindow inherits Window {
     // the layout instead of filling the screen (search field hidden until a
     // resize/maximize forced a relayout). See slint-ui/slint#11170, #5391.
 
+    // --- top-level tabs ---
+    // 0 = Search, 1 = Setlists, 2 = Books. Rust sets it at startup (Books when
+    // nothing is installed yet, to guide first-time setup; Search otherwise).
+    in-out property <int> active-tab;
+
     // --- search ---
     in property <[SongResult]> results;
     in property <string> status;
@@ -52,9 +108,25 @@ export component AppWindow inherits Window {
 
     // --- books list (setup-time: which PDFs are indexed/supported) ---
     in property <[BookEntry]> book-list;
-    in property <bool> books-visible: false;
-    callback show-books();
-    callback close-books();
+
+    // --- setlists ---
+    in property <[SetlistEntry]> setlists;
+    in property <int> editing-index: -1; // -1 = list view, >=0 = editing that setlist
+    in property <string> editing-name; // name of the setlist being edited
+    in property <[SetlistSongEntry]> editing-songs;
+    in property <[SongResult]> add-results; // search hits while adding songs
+    callback create-setlist(string);
+    callback rename-setlist(int/* index */, string/* new name */);
+    callback delete-setlist(int);
+    callback edit-setlist(int); // enter the editor
+    callback close-setlist-editor();
+    callback play-setlist(int); // open the setlist in the viewer
+    callback setlist-add-search(string);
+    callback setlist-add-song(int); // index into `add-results`
+    callback preview-song(int); // preview `add-results[i]` in the viewer before adding
+    callback setlist-remove-song(int); // index into `editing-songs`
+    callback setlist-move-up(int);
+    callback setlist-move-down(int);
 
     // --- viewer ---
     in property <bool> viewer-visible: false;
@@ -62,65 +134,346 @@ export component AppWindow inherits Window {
     in property <image> page-image;
     in property <int> page-number;
     in property <int> page-count;
-    in property <int> result-index; // 0-based position of the open song in `results`
-    in property <int> result-count; // total number of search results
+    in property <int> result-index; // 0-based position of the open song in the nav list
+    in property <int> result-count; // total number of songs being navigated
     in property <string> viewer-error;
     callback prev-page(); // within the open PDF
     callback next-page();
-    callback prev-result(); // across the search results
+    callback prev-result(); // across the nav list (search results or a setlist)
     callback next-result();
     callback close-viewer();
 
     // On Android the search field keeps focus while the viewer covers it, so its
     // text caret/selection handles bleed through over the PDF. Drop focus while
-    // the viewer is up and restore it when we return to the search view.
+    // the viewer is up and restore it (only on the Search tab) when we return.
     changed viewer-visible => {
         if (root.viewer-visible) {
             searchLineEdit.clear-focus();
-        } else {
+        } else if (root.active-tab == 0) {
             searchLineEdit.focus();
         }
     }
 
-    // Search view
-    VerticalLayout {
-        padding: 8px;
-        spacing: 8px;
+    TabWidget {
+        width: 100%;
+        height: 100%;
+        current-index <=> root.active-tab;
 
-        searchLineEdit := LineEdit {
-            placeholder-text: @tr("Search songs");
-            font-size: 28px;
-            edited(text) => { root.search(text); }
+        Tab {
+            title: "Search";
+
+            VerticalLayout {
+                padding: 8px;
+                spacing: 8px;
+
+                searchLineEdit := LineEdit {
+                    placeholder-text: @tr("Search songs");
+                    font-size: 28px;
+                    edited(text) => { root.search(text); }
+                }
+
+                Text {
+                    text: root.status;
+                    color: gray;
+                    wrap: word-wrap;
+                }
+
+                resultsList := ListView {
+                    vertical-stretch: 1;
+                    mouse-drag-pan-enabled: true;
+                    horizontal-scrollbar-policy: always-off;
+                    for result[idx] in root.results : ResultRow {
+                        data: result;
+                        width: resultsList.viewport-width;
+                        clicked => { root.open-result(idx); }
+                    }
+                }
+            }
         }
 
-        HorizontalLayout {
-            spacing: 8px;
-            Text {
-                text: root.status;
-                color: gray;
-                wrap: word-wrap;
-                vertical-alignment: center;
-                horizontal-stretch: 1;
-            }
-            Button {
-                text: "Books";
-                clicked => { root.show-books(); }
+        Tab {
+            title: "Setlists";
+
+            Rectangle {
+                // List view: every setlist, with create / play / edit / delete.
+                if root.editing-index < 0 : VerticalLayout {
+                    padding: 8px;
+                    spacing: 8px;
+
+                    HorizontalLayout {
+                        spacing: 8px;
+                        newName := LineEdit {
+                            placeholder-text: "New setlist name";
+                            horizontal-stretch: 1;
+                        }
+                        Button {
+                            text: "Create";
+                            enabled: newName.text != "";
+                            clicked => {
+                                root.create-setlist(newName.text);
+                                newName.text = "";
+                            }
+                        }
+                    }
+
+                    setlistsList := ListView {
+                        vertical-stretch: 1;
+                        mouse-drag-pan-enabled: true;
+                        horizontal-scrollbar-policy: always-off;
+                        for s[idx] in root.setlists : ListRow {
+                            width: setlistsList.viewport-width;
+                            VerticalLayout {
+                                horizontal-stretch: 1;
+                                spacing: 2px;
+                                Text {
+                                    text: s.name;
+                                    font-weight: 700;
+                                    wrap: word-wrap;
+                                }
+                                Text {
+                                    text: "\{s.song-count} song(s)";
+                                    color: gray;
+                                    font-size: 16px;
+                                }
+                            }
+                            Button {
+                                text: "Play";
+                                enabled: s.song-count > 0;
+                                clicked => { root.play-setlist(idx); }
+                            }
+                            Button {
+                                text: "Edit";
+                                clicked => { root.edit-setlist(idx); }
+                            }
+                            Button {
+                                text: "Delete";
+                                clicked => { root.delete-setlist(idx); }
+                            }
+                        }
+                    }
+                }
+
+                // Editor view: rename/close on top, then two columns — the
+                // setlist (reorder/remove) on the left, a live song search with
+                // preview/add on the right (Mobile Sheets style).
+                if root.editing-index >= 0 : VerticalLayout {
+                    padding: 8px;
+                    spacing: 6px;
+
+                    HorizontalLayout {
+                        vertical-stretch: 0;
+                        spacing: 8px;
+                        editName := LineEdit {
+                            text: root.editing-name;
+                            horizontal-stretch: 1;
+                        }
+                        Button {
+                            text: "Rename";
+                            enabled: editName.text != "";
+                            clicked => { root.rename-setlist(root.editing-index, editName.text); }
+                        }
+                        Button {
+                            text: "Close";
+                            clicked => { root.close-setlist-editor(); }
+                        }
+                    }
+
+                    HorizontalLayout {
+                        vertical-stretch: 1;
+                        spacing: 12px;
+
+                        // Left column: the setlist itself.
+                        VerticalLayout {
+                            horizontal-stretch: 1;
+                            spacing: 4px;
+                            Text {
+                                text: "In this setlist";
+                                font-weight: 700;
+                            }
+                            songsList := ListView {
+                                vertical-stretch: 1;
+                                mouse-drag-pan-enabled: true;
+                                horizontal-scrollbar-policy: always-off;
+                                for song[i] in root.editing-songs : ListRow {
+                                    width: songsList.viewport-width;
+                                    VerticalLayout {
+                                        horizontal-stretch: 1;
+                                        spacing: 2px;
+                                        Text {
+                                            text: "\{i + 1}. \{song.title}";
+                                            font-weight: 700;
+                                            color: song.available ? black : gray;
+                                            wrap: word-wrap;
+                                        }
+                                        Text {
+                                            text: song.available ? song.subtitle : "\{song.subtitle} — PDF missing";
+                                            color: song.available ? gray : #b00020;
+                                            font-size: 14px;
+                                            overflow: elide;
+                                        }
+                                    }
+                                    // Reorder/remove grouped tightly so they read
+                                    // as one control cluster for this row.
+                                    HorizontalLayout {
+                                        spacing: 2px;
+                                        Button {
+                                            text: "▲";
+                                            width: 44px;
+                                            enabled: i > 0;
+                                            clicked => { root.setlist-move-up(i); }
+                                        }
+                                        Button {
+                                            text: "▼";
+                                            width: 44px;
+                                            enabled: i < root.editing-songs.length - 1;
+                                            clicked => { root.setlist-move-down(i); }
+                                        }
+                                        Button {
+                                            text: "✕";
+                                            width: 44px;
+                                            clicked => { root.setlist-remove-song(i); }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        VSeparator { }
+
+                        // Right column: live search to add songs. The field is
+                        // always visible (no toggle); Preview opens the song in
+                        // the viewer so the user isn't choosing blind.
+                        VerticalLayout {
+                            horizontal-stretch: 1;
+                            spacing: 4px;
+                            addSearch := LineEdit {
+                                placeholder-text: @tr("Search songs to add");
+                                edited(text) => { root.setlist-add-search(text); }
+                            }
+                            Rectangle {
+                                vertical-stretch: 1;
+                                addList := ListView {
+                                    mouse-drag-pan-enabled: true;
+                                    horizontal-scrollbar-policy: always-off;
+                                    for r[ri] in root.add-results : ListRow {
+                                        width: addList.viewport-width;
+                                        VerticalLayout {
+                                            horizontal-stretch: 1;
+                                            spacing: 2px;
+                                            Text {
+                                                text: r.title;
+                                                font-weight: 700;
+                                                wrap: word-wrap;
+                                            }
+                                            Text {
+                                                text: r.subtitle;
+                                                color: gray;
+                                                font-size: 16px;
+                                                overflow: elide;
+                                            }
+                                        }
+                                        Button {
+                                            text: "Preview";
+                                            clicked => { root.preview-song(ri); }
+                                        }
+                                        Button {
+                                            text: "Add";
+                                            clicked => { root.setlist-add-song(ri); }
+                                        }
+                                    }
+                                }
+                                // Guidance while no search has been run yet.
+                                if root.add-results.length == 0 : Text {
+                                    width: 100%;
+                                    height: 100%;
+                                    text: "Type above to find songs to add.";
+                                    color: gray;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                    wrap: word-wrap;
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
 
-        resultsList := ListView {
-            vertical-stretch: 1;
-            mouse-drag-pan-enabled: true;
-            horizontal-scrollbar-policy: always-off;
-            for result[idx] in root.results : ResultRow {
-                data: result;
-                width: resultsList.viewport-width;
-                clicked => { root.open-result(idx); }
+        Tab {
+            title: "Books";
+
+            // Setup-time: every indexed book, marking whether its PDF is
+            // installed. PDFs are not bundled (copyright), so this tells the user
+            // which PDFs they can install to enable a book.
+            VerticalLayout {
+                padding: 8px;
+                spacing: 6px;
+
+                HorizontalLayout {
+                    spacing: 8px;
+                    Text {
+                        text: "Supported books";
+                        font-weight: 700;
+                        vertical-alignment: center;
+                        horizontal-stretch: 1;
+                    }
+                    Button {
+                        text: "Reload";
+                        clicked => { root.reload(); }
+                    }
+                }
+
+                Text {
+                    text: "Reload fetches the latest indexes. Install the matching PDF to enable a book; PDFs are not bundled.";
+                    color: gray;
+                    font-size: 16px;
+                    wrap: word-wrap;
+                }
+
+                Text {
+                    text: root.status;
+                    color: gray;
+                    font-size: 16px;
+                    wrap: word-wrap;
+                }
+
+                booksList := ListView {
+                    vertical-stretch: 1;
+                    mouse-drag-pan-enabled: true;
+                    horizontal-scrollbar-policy: always-off;
+                    for book in root.book-list : ListRow {
+                        width: booksList.viewport-width;
+                        // Title (from the index) on top, file stem underneath in
+                        // gray. When the index carries no title, the stem is the
+                        // only name we have, so it stands in as the main line.
+                        VerticalLayout {
+                            horizontal-stretch: 1;
+                            spacing: 2px;
+                            Text {
+                                text: book.title != "" ? book.title : book.name;
+                                font-weight: 700;
+                                wrap: word-wrap;
+                            }
+                            if book.title != "" : Text {
+                                text: book.name;
+                                color: gray;
+                                font-size: 16px;
+                                wrap: word-wrap;
+                            }
+                        }
+                        Text {
+                            text: book.installed ? "installed" : "PDF missing";
+                            color: book.installed ? #2e7d32 : gray;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
             }
         }
     }
 
-    // Viewer overlay (covers the whole window when a song is open)
+    // Viewer overlay (covers the whole window, tab bar included, when a song is
+    // open). A later sibling than the TabWidget, so it draws on top.
     if root.viewer-visible : Rectangle {
         width: root.width;
         height: root.height;
@@ -130,8 +483,8 @@ export component AppWindow inherits Window {
             padding: 8px;
             spacing: 6px;
 
-            // Top bar navigates the *search results* (e.g. the 3 hits for "All
-            // Of Me"), so you can compare them without going back to the list.
+            // Top bar navigates the nav list (the search hits for a song, or the
+            // songs of a setlist), so you can step through without going back.
             HorizontalLayout {
                 spacing: 8px;
                 Button {
@@ -140,7 +493,7 @@ export component AppWindow inherits Window {
                     clicked => { root.prev-result(); }
                 }
                 Text {
-                    text: "Result \{root.result-index + 1} / \{root.result-count}";
+                    text: "\{root.result-index + 1} / \{root.result-count}";
                     vertical-alignment: center;
                     horizontal-alignment: center;
                     horizontal-stretch: 1;
@@ -212,84 +565,6 @@ export component AppWindow inherits Window {
                         color: white;
                         font-size: 16px;
                         horizontal-alignment: center;
-                        vertical-alignment: center;
-                    }
-                }
-            }
-        }
-    }
-
-    // Books overlay (setup-time: shows which PDFs are indexed/supported)
-    if root.books-visible : Rectangle {
-        width: root.width;
-        height: root.height;
-        background: white;
-
-        VerticalLayout {
-            padding: 8px;
-            spacing: 6px;
-
-            HorizontalLayout {
-                spacing: 8px;
-                Text {
-                    text: "Supported books";
-                    font-weight: 700;
-                    vertical-alignment: center;
-                    horizontal-stretch: 1;
-                }
-                Button {
-                    text: "Reload";
-                    clicked => { root.reload(); }
-                }
-                Button {
-                    text: "Close";
-                    clicked => { root.close-books(); }
-                }
-            }
-
-            Text {
-                text: "Reload fetches the latest indexes. Install the matching PDF to enable a book; PDFs are not bundled.";
-                color: gray;
-                font-size: 16px;
-                wrap: word-wrap;
-            }
-
-            Text {
-                text: root.status;
-                color: gray;
-                font-size: 16px;
-                wrap: word-wrap;
-            }
-
-            booksList := ListView {
-                vertical-stretch: 1;
-                mouse-drag-pan-enabled: true;
-                horizontal-scrollbar-policy: always-off;
-                for book in root.book-list : HorizontalLayout {
-                    width: booksList.viewport-width;
-                    padding: 8px;
-                    spacing: 8px;
-                    // Title (from the index) on top, file stem underneath in
-                    // gray. When the index carries no title, the stem is the
-                    // only name we have, so it stands in as the main line.
-                    VerticalLayout {
-                        horizontal-stretch: 1;
-                        spacing: 2px;
-                        Text {
-                            text: book.title != "" ? book.title : book.name;
-                            font-weight: 700;
-                            wrap: word-wrap;
-                        }
-                        if book.title != "" : Text {
-                            text: book.name;
-                            color: gray;
-                            font-size: 16px;
-                            wrap: word-wrap;
-                        }
-                    }
-                    Text {
-                        text: book.installed ? "installed" : "PDF missing";
-                        color: book.installed ? #2e7d32 : gray;
                         vertical-alignment: center;
                     }
                 }

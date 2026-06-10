@@ -48,3 +48,9 @@ pub fn pdf_dir() -> PathBuf {
 pub fn download_dir() -> PathBuf {
     data_dir().join("downloaded")
 }
+
+/// File holding the user's setlists (JSON). The app's only writable user data;
+/// lives in the data-dir root, beside the `pdfs/` and `downloaded/` folders.
+pub fn setlists_path() -> PathBuf {
+    data_dir().join("setlists.json")
+}
