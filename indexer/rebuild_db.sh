@@ -7,6 +7,9 @@
 #
 # The .pdf/.index/.db files live in the viewer's data dir (not in git). Override
 # PDF_DIR if your books are elsewhere:  PDF_DIR=/path/to/pdfs ./rebuild_db.sh
+#
+# Per-book transcription notes (scan defects, TOC quirks, OCR-vs-vision method)
+# are in ocr-results.md next to this script.
 set -euo pipefail
 
 PDF_DIR="${PDF_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/tunecall/pdfs}"
@@ -53,8 +56,15 @@ index realrockb1     0 "Real Rock Book"
 index ajrealbk      13 "The All-Jazz Real Book"
 index realjazzbk    -2 "The Hal Leonard Real Jazz Book"
 index rwlpfbk       -1 "Richard Wolfe's Legit Professional Fake Book"
-# bestfbevr2: printed 400 missing from scan and scan 498 duplicates printed 496,
-# so the .index entries for printed 401-497 are shifted down by 1.
 index bestfbevr2     1 "The Best Fake Book Ever (2nd Edition)"
 index braziljrbk    14 "Brazilian Jazz Real Book"
 index eurealbk       7 "The European Real Book"
+index fjfakebk       0 "The Firehouse Jazz Band Commercial Dixieland Fake Book"
+index jazzltd        7 "Jazz LTD"
+index wgfakebk      14 "The World's Greatest Fake Book"
+index jfakebk       -1 "Jazz Fakebook"
+index ltrealbk      19 "The Latin Real Book"
+index thebook       11 "The Book"
+index ulbdwyfb5e    66 "The Ultimate Broadway Fake Book"
+index ulpoprock      0 "The Ultimate Pop/Rock Fake Book"
+index ulfakebk       0 "The Ultimate Fake Book (2nd Edition)"
