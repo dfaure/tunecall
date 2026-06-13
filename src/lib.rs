@@ -160,14 +160,19 @@ fn refresh_book_titles(titles: &Rc<RefCell<HashMap<String, String>>>) {
     *titles.borrow_mut() = map;
 }
 
+/// Friendly book name for `stem`, falling back to the file stem when the index
+/// recorded no title.
+fn book_label(titles: &HashMap<String, String>, stem: &str) -> String {
+    titles
+        .get(&stem.to_lowercase())
+        .cloned()
+        .unwrap_or_else(|| stem.to_string())
+}
+
 /// "Book Title · p.N" for a song row, using the friendly title where known (the
 /// file stem otherwise). N is the 1-based render page the viewer shows.
 fn book_subtitle(titles: &HashMap<String, String>, stem: &str, page: i32) -> String {
-    let label = titles
-        .get(&stem.to_lowercase())
-        .cloned()
-        .unwrap_or_else(|| stem.to_string());
-    format!("{label} · p.{}", page + 1)
+    format!("{} · p.{}", book_label(titles, stem), page + 1)
 }
 
 /// Push the setlist list (name + song count) to the Setlists tab.
@@ -231,6 +236,7 @@ fn open_result_at(
     ui: &AppWindow,
     nav: &Rc<RefCell<Vec<Song>>>,
     viewer: &Rc<RefCell<Option<ViewerState>>>,
+    titles: &Rc<RefCell<HashMap<String, String>>>,
     idx: usize,
 ) {
     let (song, total) = {
@@ -250,9 +256,9 @@ fn open_result_at(
     let count = pdf::page_count(&path).unwrap_or(0);
     let page = song.page.clamp(0, count.saturating_sub(1) as i32) as u16;
 
-    // Show only the book (PDF) name: the song title is in the page itself,
+    // Show only the book's friendly name: the song title is in the page itself,
     // and would be wrong once the user pages Prev/Next to another song.
-    ui.set_viewer_title(song.book.into());
+    ui.set_viewer_title(book_label(&titles.borrow(), &song.book).into());
     ui.set_result_index(idx as i32);
     ui.set_result_count(total as i32);
     // A different song starts back at fit-to-window zoom (page flips within a
@@ -320,6 +326,16 @@ pub fn tunecall_main() -> Result<(), Box<dyn Error>> {
         TAB_SEARCH
     });
 
+    // App name / version / build, for the Books-tab footer (handy in bug reports).
+    ui.set_about(
+        format!(
+            "TuneCall {} ({})",
+            env!("CARGO_PKG_VERSION"),
+            env!("GIT_HASH")
+        )
+        .into(),
+    );
+
     ui.on_search({
         let ui_handle = ui.as_weak();
         let library = library.clone();
@@ -360,11 +376,12 @@ pub fn tunecall_main() -> Result<(), Box<dyn Error>> {
         let results = results.clone();
         let nav = nav.clone();
         let viewer = viewer.clone();
+        let book_titles = book_titles.clone();
         move |idx| {
             let ui = ui_handle.unwrap();
             // The viewer navigates the current search hits.
             *nav.borrow_mut() = results.borrow().clone();
-            open_result_at(&ui, &nav, &viewer, idx as usize);
+            open_result_at(&ui, &nav, &viewer, &book_titles, idx as usize);
         }
     });
 
@@ -372,6 +389,7 @@ pub fn tunecall_main() -> Result<(), Box<dyn Error>> {
         let ui_handle = ui.as_weak();
         let nav = nav.clone();
         let viewer = viewer.clone();
+        let book_titles = book_titles.clone();
         move || {
             let ui = ui_handle.unwrap();
             let next = match viewer.borrow().as_ref() {
@@ -381,7 +399,7 @@ pub fn tunecall_main() -> Result<(), Box<dyn Error>> {
                 _ => None,
             };
             if let Some(idx) = next {
-                open_result_at(&ui, &nav, &viewer, idx);
+                open_result_at(&ui, &nav, &viewer, &book_titles, idx);
             }
         }
     });
@@ -390,6 +408,7 @@ pub fn tunecall_main() -> Result<(), Box<dyn Error>> {
         let ui_handle = ui.as_weak();
         let nav = nav.clone();
         let viewer = viewer.clone();
+        let book_titles = book_titles.clone();
         move || {
             let ui = ui_handle.unwrap();
             let prev = match viewer.borrow().as_ref() {
@@ -397,7 +416,7 @@ pub fn tunecall_main() -> Result<(), Box<dyn Error>> {
                 _ => None,
             };
             if let Some(idx) = prev {
-                open_result_at(&ui, &nav, &viewer, idx);
+                open_result_at(&ui, &nav, &viewer, &book_titles, idx);
             }
         }
     });
@@ -604,6 +623,7 @@ pub fn tunecall_main() -> Result<(), Box<dyn Error>> {
         let setlists = setlists.clone();
         let nav = nav.clone();
         let viewer = viewer.clone();
+        let book_titles = book_titles.clone();
         move |idx| {
             let ui = ui_handle.unwrap();
             let songs: Vec<Song> = {
@@ -625,7 +645,7 @@ pub fn tunecall_main() -> Result<(), Box<dyn Error>> {
                 return;
             }
             *nav.borrow_mut() = songs;
-            open_result_at(&ui, &nav, &viewer, 0);
+            open_result_at(&ui, &nav, &viewer, &book_titles, 0);
         }
     });
 
@@ -689,6 +709,7 @@ pub fn tunecall_main() -> Result<(), Box<dyn Error>> {
         let add_hits = add_hits.clone();
         let nav = nav.clone();
         let viewer = viewer.clone();
+        let book_titles = book_titles.clone();
         move |ri| {
             let ui = ui_handle.unwrap();
             // add_hits are library songs (their PDF is installed), so the viewer
@@ -698,7 +719,7 @@ pub fn tunecall_main() -> Result<(), Box<dyn Error>> {
                 return;
             };
             *nav.borrow_mut() = vec![song];
-            open_result_at(&ui, &nav, &viewer, 0);
+            open_result_at(&ui, &nav, &viewer, &book_titles, 0);
         }
     });
 

@@ -108,6 +108,7 @@ export component AppWindow inherits Window {
 
     // --- books list (setup-time: which PDFs are indexed/supported) ---
     in property <[BookEntry]> book-list;
+    in property <string> about; // app name, version and build (footer of the Books tab)
 
     // --- setlists ---
     in property <[SetlistEntry]> setlists;
@@ -476,6 +477,15 @@ export component AppWindow inherits Window {
                         }
                     }
                 }
+
+                // App name / version / build, parked at the bottom so it's
+                // available for bug reports without being intrusive.
+                Text {
+                    text: root.about;
+                    color: gray;
+                    font-size: 14px;
+                    horizontal-alignment: center;
+                }
             }
         }
     }
@@ -517,13 +527,6 @@ export component AppWindow inherits Window {
                 }
             }
 
-            Text {
-                text: root.viewer-title;
-                font-weight: 700;
-                wrap: word-wrap;
-                horizontal-alignment: center;
-            }
-
             if !root.viewer-error.is-empty : Text {
                 text: root.viewer-error;
                 color: red;
@@ -543,6 +546,27 @@ export component AppWindow inherits Window {
                 property <float> start-zoom: 1.0;
                 property <length> start-pan-x;
                 property <length> start-pan-y;
+
+                // The bottom badge covers the last line of music on some scans,
+                // so it auto-hides a few seconds after the page changes and is
+                // toggled back by a tap in the page's center. `badge-page` mirrors
+                // page-number only so its `changed` handler fires on navigation
+                // (open, page flip, or song change) — re-showing the badge and
+                // restarting the fade each time.
+                property <bool> badge-shown: true;
+                property <int> badge-page: root.page-number;
+                changed badge-page => {
+                    self.badge-shown = true;
+                    badgeHideTimer.restart();
+                }
+                badgeHideTimer := Timer {
+                    interval: 5s;
+                    running: true;
+                    triggered => {
+                        self.running = false;
+                        pageArea.badge-shown = false;
+                    }
+                }
 
                 // Zoom to `new-zoom` (clamped) keeping the page point under
                 // (cx, cy) fixed on screen. old-* is the state the new zoom is
@@ -626,6 +650,12 @@ export component AppWindow inherits Window {
                                     root.prev-page();
                                 } else if (self.pressed-x > self.width * 80% && root.page-number < root.page-count) {
                                     root.next-page();
+                                } else if (self.pressed-x >= self.width * 20% && self.pressed-x <= self.width * 80%) {
+                                    // Center tap: toggle the badge at once (the fade
+                                    // is hide-only, so showing is instant) and stop
+                                    // the auto-hide so the choice sticks.
+                                    pageArea.badge-shown = !pageArea.badge-shown;
+                                    badgeHideTimer.running = false;
                                 }
                             }
                         }
@@ -656,18 +686,31 @@ export component AppWindow inherits Window {
                 badge := Rectangle {
                     x: (parent.width - self.width) / 2;
                     y: parent.height - self.height - 8px;
-                    width: pageLabel.preferred-width + 16px;
-                    height: pageLabel.preferred-height + 6px;
+                    width: badgeRow.preferred-width + 16px;
+                    height: badgeRow.preferred-height + 6px;
                     background: #000000a0;
                     border-radius: 6px;
-                    pageLabel := Text {
-                        width: 100%;
-                        height: 100%;
-                        text: "Page \{root.page-number} / \{root.page-count}";
-                        color: white;
-                        font-size: 16px;
-                        horizontal-alignment: center;
-                        vertical-alignment: center;
+                    opacity: pageArea.badge-shown ? 1.0 : 0.0;
+                    // Hide-only fade: showing is instant (0ms) so a tap feels
+                    // responsive; the auto-hide and tap-dismiss fade out gently.
+                    animate opacity { duration: pageArea.badge-shown ? 0ms : 300ms; }
+                    // Book name (dimmed, so it stays unobtrusive) and page number
+                    // share the badge, saving the vertical space a separate title
+                    // line would take.
+                    badgeRow := HorizontalLayout {
+                        spacing: 6px;
+                        Text {
+                            text: root.viewer-title;
+                            color: #ffffff99;
+                            font-size: 16px;
+                            vertical-alignment: center;
+                        }
+                        Text {
+                            text: "· Page \{root.page-number} / \{root.page-count}";
+                            color: white;
+                            font-size: 16px;
+                            vertical-alignment: center;
+                        }
                     }
                 }
             }
