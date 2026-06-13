@@ -1,9 +1,5 @@
 # TuneCall — TODO
 
-Open work, roughly by priority. (The missing-pages / per-page-number problem is
-intentionally dropped: the current PDF set doesn't have that issue, so a single
-per-book `--offset` is sufficient.)
-
 ## Index
 
 All books are indexed via a transcribed `<stem>.index` sidecar (the scans are
@@ -40,7 +36,3 @@ external — see `docs/PLAY_PUBLISHING.md` and `docs/RELEASE_SIGNING.md`:
 - [ ] Store listing: 512×512 icon, feature graphic, screenshots, description
       (with the "you supply your own PDFs" framing); content rating; dev account.
 
-## Done
-
-- Set lists (create / rename / edit / reorder / play).
-- Friendly book display names in results and lists (from the DB `meta` title).
