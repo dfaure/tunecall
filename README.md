@@ -68,7 +68,7 @@ cargo build --lib --target aarch64-linux-android \
 ## Usage
 
 Install the PDFs like realbk1h.pdf (the name matters!) in the directory
-/storage/emulated/0/Android/data/fr.davidfaure.tunecall/files/pdfs/
+/storage/emulated/0/Android/data/com.tunecall.app/files/pdfs/
 from a PC (connected via USB to your Android device)
 
 Then tap **Reload**.

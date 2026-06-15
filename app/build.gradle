@@ -41,7 +41,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "fr.davidfaure.tunecall"
+        applicationId = "com.tunecall.app"
         minSdk = 28
         targetSdk = 35
         versionCode = 1
@@ -68,7 +68,7 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    namespace = 'fr.davidfaure.tunecall'
+    namespace = 'com.tunecall.app'
 }
 
 dependencies {

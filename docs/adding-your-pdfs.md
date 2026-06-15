@@ -38,7 +38,7 @@ name must match exactly.)
 On the computer, open the device's storage, then navigate to:
 
 ```
-Internal storage / Android / data / fr.davidfaure.tunecall / files / pdfs
+Internal storage / Android / data / com.tunecall.app / files / pdfs
 ```
 
 - **Windows**: open *This PC* → your device → *Internal storage* → the path
