@@ -101,16 +101,20 @@ fn reload_library(ui: &AppWindow, library: &Rc<RefCell<Vec<Song>>>) {
 fn set_idle_status(ui: &AppWindow, library: &Rc<RefCell<Vec<Song>>>) {
     ui.set_status_error(false);
     let n = library.borrow().len();
-    if n == 0 {
+    if n > 0 {
+        ui.set_status(format!("{n} songs indexed. Type to search.").into());
+    } else if db::list_books().is_empty() {
         ui.set_status(
             format!(
-                "No song indexes found in\n{}\nGenerate <book>.db files with the indexer.",
+                "No song indexes found in\n{}\nTap Reload to download them.",
                 storage::pdf_dir().display()
             )
             .into(),
         );
     } else {
-        ui.set_status(format!("{n} songs indexed. Type to search.").into());
+        // Indexes are present but no matching PDF is installed yet, so nothing is
+        // searchable. The Books tab shows which PDFs to install.
+        ui.set_status("No PDFs installed yet. See the Books tab to install them.".into());
     }
 }
 
