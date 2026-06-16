@@ -1,8 +1,8 @@
 //! Downloads the published per-PDF indexes from the TuneCall server.
 //!
-//! Same approach as videofinder: plain `http://` (no TLS — it crashes on
-//! Android and the server serves http), streamed to disk with `reqwest`. The
-//! caller drives this on Slint's event loop via `async-compat`.
+//! Fetched over `https://` with `reqwest` (rustls + bundled CA roots, so TLS
+//! works on Android too) and streamed to disk. The caller drives this on
+//! Slint's event loop via `async-compat`.
 //!
 //! The server holds an `index.txt` manifest (one `<book>.db` per line, produced
 //! by `indexer/upload-indexes.sh`) plus the `.db` files themselves. We fetch the
@@ -18,7 +18,7 @@ use reqwest::Client;
 
 use crate::storage;
 
-const BASE_URL: &str = "http://www.davidfaure.fr/tunecall";
+const BASE_URL: &str = "https://www.davidfaure.fr/tunecall";
 
 /// Stream `url` to `path` via a temporary `.part` file (so a failed download
 /// never leaves a truncated index in place).

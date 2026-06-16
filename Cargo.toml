@@ -20,10 +20,12 @@ rusqlite = { version = "0.37.0", features = ["bundled"] }
 # (libpdfium.so / pdfium.dll / libpdfium.dylib), so the build does not need it; see README.md.
 # default-features off drops the `image` crate dep: we read RGBA bytes from the bitmap directly.
 pdfium-render = { version = "0.8", default-features = false, features = ["pdfium_latest", "thread_safe"] }
-# Downloads the published .db indexes (Reload button) using
-# reqwest with TLS disabled (HTTPS crashes on Android, and the
-# server serves plain http), driven on Slint's event loop via async-compat.
-reqwest = { version = "0.12", default-features = false, features = ["stream"] }
+# Downloads the published .db indexes (Reload button) using reqwest, driven on
+# Slint's event loop via async-compat. TLS uses rustls with its own bundled CA
+# roots (rustls-tls-webpki-roots) so HTTPS works on Android without depending on
+# the system OpenSSL / trust store (the cross-build pain that earlier forced
+# plain http).
+reqwest = { version = "0.12", default-features = false, features = ["stream", "rustls-tls-webpki-roots"] }
 async-compat = "0.2.4"
 futures-util = "0.3.31"
 # User-created setlists are persisted as JSON in the data dir (the app's first
