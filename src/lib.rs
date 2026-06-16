@@ -99,6 +99,7 @@ fn reload_library(ui: &AppWindow, library: &Rc<RefCell<Vec<Song>>>) {
 
 /// Status line shown when no search is active.
 fn set_idle_status(ui: &AppWindow, library: &Rc<RefCell<Vec<Song>>>) {
+    ui.set_status_error(false);
     let n = library.borrow().len();
     if n == 0 {
         ui.set_status(
@@ -362,6 +363,7 @@ pub fn tunecall_main() -> Result<(), Box<dyn Error>> {
                 .collect();
             let n = items.len();
             ui.set_results(Rc::new(VecModel::from(items)).into());
+            ui.set_status_error(false);
             ui.set_status(if n == 0 {
                 "No results".into()
             } else {
@@ -433,6 +435,7 @@ pub fn tunecall_main() -> Result<(), Box<dyn Error>> {
         let book_titles = book_titles.clone();
         move || {
             let ui = ui_handle.unwrap();
+            ui.set_status_error(false);
             ui.set_status("Downloading indexes…".into());
             let ui_handle = ui_handle.clone();
             let library = library.clone();
@@ -466,6 +469,7 @@ pub fn tunecall_main() -> Result<(), Box<dyn Error>> {
                 // Report the download error last, so it isn't overwritten by the
                 // idle status `reload_library` sets on success.
                 if let Some(e) = download_err {
+                    ui.set_status_error(true);
                     ui.set_status(format!("Download failed: {e}").into());
                 }
             })) {
