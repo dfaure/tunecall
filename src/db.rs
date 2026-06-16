@@ -294,7 +294,11 @@ mod tests {
 
         // Titled: index has a meta title -> surfaced.
         std::fs::write(pdfs.join("Titled.PDF"), b"%PDF-1.4").unwrap();
-        write_db_with_title(&pdfs.join("Titled.db"), &[("Song", 1)], "The Real Book, Vol. 1");
+        write_db_with_title(
+            &pdfs.join("Titled.db"),
+            &[("Song", 1)],
+            "The Real Book, Vol. 1",
+        );
 
         // Untitled: index without a meta table (older DB) -> None, no error.
         write_db(&dl.join("Untitled.db"), &[("Song", 1)]);
@@ -315,8 +319,14 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("RealBk1h.PDF"), b"%PDF-1.4").unwrap();
 
-        assert_eq!(resolve_pdf_in(&dir, "realbk1h"), Some(dir.join("RealBk1h.PDF")));
-        assert_eq!(resolve_pdf_in(&dir, "REALBK1H"), Some(dir.join("RealBk1h.PDF")));
+        assert_eq!(
+            resolve_pdf_in(&dir, "realbk1h"),
+            Some(dir.join("RealBk1h.PDF"))
+        );
+        assert_eq!(
+            resolve_pdf_in(&dir, "REALBK1H"),
+            Some(dir.join("RealBk1h.PDF"))
+        );
         assert_eq!(resolve_pdf_in(&dir, "missing"), None);
 
         std::fs::remove_dir_all(&dir).ok();

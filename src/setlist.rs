@@ -140,13 +140,25 @@ mod tests {
     fn reorder_edges_are_noops() {
         let mut s = vec![song("a"), song("b"), song("c")];
         move_up(&mut s, 0); // first up: no-op
-        assert_eq!(s.iter().map(|x| x.title.as_str()).collect::<Vec<_>>(), ["a", "b", "c"]);
+        assert_eq!(
+            s.iter().map(|x| x.title.as_str()).collect::<Vec<_>>(),
+            ["a", "b", "c"]
+        );
         move_down(&mut s, 2); // last down: no-op
-        assert_eq!(s.iter().map(|x| x.title.as_str()).collect::<Vec<_>>(), ["a", "b", "c"]);
+        assert_eq!(
+            s.iter().map(|x| x.title.as_str()).collect::<Vec<_>>(),
+            ["a", "b", "c"]
+        );
         move_down(&mut s, 0); // a <-> b
-        assert_eq!(s.iter().map(|x| x.title.as_str()).collect::<Vec<_>>(), ["b", "a", "c"]);
+        assert_eq!(
+            s.iter().map(|x| x.title.as_str()).collect::<Vec<_>>(),
+            ["b", "a", "c"]
+        );
         move_up(&mut s, 2); // a <-> c
-        assert_eq!(s.iter().map(|x| x.title.as_str()).collect::<Vec<_>>(), ["b", "c", "a"]);
+        assert_eq!(
+            s.iter().map(|x| x.title.as_str()).collect::<Vec<_>>(),
+            ["b", "c", "a"]
+        );
     }
 
     #[test]
