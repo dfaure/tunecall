@@ -113,8 +113,14 @@ fn set_idle_status(ui: &AppWindow, library: &Rc<RefCell<Vec<Song>>>) {
         );
     } else {
         // Indexes are present but no matching PDF is installed yet, so nothing is
-        // searchable. The Books tab shows which PDFs to install.
-        ui.set_status("No PDFs installed yet. See the Books tab to install them.".into());
+        // searchable. Tell the user where to put the PDFs.
+        ui.set_status(
+            format!(
+                "No PDFs installed yet. Copy them to\n{}\nvia USB.",
+                storage::pdf_dir().display()
+            )
+            .into(),
+        );
     }
 }
 
