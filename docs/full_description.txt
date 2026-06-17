@@ -1,0 +1,30 @@
+TuneCall is a fast song finder for musicians who play from scanned fake books and real books.
+
+Type a few letters of a tune's title and TuneCall searches across all your books at once, then opens the matching PDF straight to the correct page — no flipping, no guessing, no fumbling on a gig or at a session.
+
+KEY FEATURES
+
+• Instant search across every indexed book at once
+• Jumps directly to the exact scanned page for each song
+• Setlists: build, reorder, and play through a set page by page
+• Pinch to zoom and pan — crop into the staff you need
+• Works fully offline once your PDFs are installed
+• Clean, full-screen page viewer made for the music stand
+
+BRING YOUR OWN BOOKS
+
+TuneCall does NOT include any songbooks or sheet music. It is a viewer for PDF files you already own. You copy your own scanned fake-book PDFs onto the device over USB, and TuneCall makes them searchable.
+
+When you tap Reload, the app downloads small song-index files (just a list of titles and page numbers) for supported books, so search knows where each tune lives. The PDFs themselves always stay on your device.
+
+HOW IT WORKS
+
+1. Copy your songbook PDFs to the app's folder via USB.
+2. Tap Reload to fetch the matching song indexes.
+3. Start typing a title — and play.
+
+WHO IT'S FOR
+
+Jazz and gigging musicians, music students, and anyone who reads from large collections of scanned charts and is tired of scrolling through hundreds of pages to find one tune.
+
+No accounts. No ads. No tracking. Just your music, found fast.
