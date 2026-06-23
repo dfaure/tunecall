@@ -46,6 +46,43 @@ padded to a valid aspect ratio only if needed. The reference command is:
 magick raw.png -background white -alpha remove -alpha off -depth 8 ready.png
 ```
 
+## Tablet screenshots (7" and 10")
+
+Once tablet is a supported form factor, the **7" slot becomes required** (the
+field is marked with a `*`), and **both** tablet slots demand a **stricter
+aspect ratio than phones**: exactly **16:9 or 9:16** (a phone shot's ~19.5:9
+will be rejected). The size brackets are:
+
+- **7"**: each side **320-3840 px**.
+- **10"**: each side **1080-7680 px**.
+
+Because those brackets overlap, **one file can fill both slots**: keep the long
+side <= 3840 (the 7" ceiling) and the short side >= 1080 (the 10" floor), i.e.
+roughly 1080-2160 x 1920-3840 for portrait. So upload the *same* normalized
+image to both the 7" and the 10" section.
+
+Real tablet screens are almost never exactly 16:9/9:16 (usually 16:10), so the
+raw capture has to be padded. Capture on the tablet, then run:
+
+```bash
+docs/adapt-tablet-screenshot.sh docs/screenshot-tablet-*.jpg
+```
+
+It keeps orientation, **pads (never crops)** to an exact 16:9/9:16 canvas sized
+to satisfy both slots, downscales only if the input is bigger than that box,
+strips alpha, and writes `<name>-916.jpg` (portrait) / `<name>-169.jpg`
+(landscape) next to each input. The pad color defaults to the image's top-left
+pixel so the letterbox blends with the app's light background (override with
+`PAD_COLOR`; JPEG quality with `QUALITY`). Upload each output to **both** tablet
+slots.
+
+## Public-domain chart for the page-viewer shot
+
+The scanned charts are copyrighted even when the *song* is public domain, so the
+page-viewer screenshot is the one copyright-sensitive shot. Use **Silent Night**
+(composed 1818) from **the Public Domain Christmas Jazz Fakebook** (`tpdxmasjfb`)
+-- that whole book is public-domain by design, so even its arrangement is safe.
+
 ## Tips
 
 - Use the phone in its normal portrait orientation.
