@@ -87,6 +87,127 @@ component ResultRow {
     }
 }
 
+// The setlist being edited: its songs with reorder/remove controls. Factored
+// out of the editor so the same pane can sit in a side-by-side column (wide
+// screens) or stacked on top (narrow screens) without duplicating its content.
+component SetlistColumn inherits VerticalLayout {
+    in property <[SetlistSongEntry]> songs;
+    callback move-up(int);
+    callback move-down(int);
+    callback remove(int);
+
+    spacing: 4px;
+    Text {
+        text: "In this setlist";
+        font-weight: 700;
+    }
+    list := ListView {
+        vertical-stretch: 1;
+        mouse-drag-pan-enabled: true;
+        horizontal-scrollbar-policy: always-off;
+        for song[i] in root.songs : ListRow {
+            width: list.viewport-width;
+            VerticalLayout {
+                horizontal-stretch: 1;
+                spacing: 2px;
+                Text {
+                    text: "\{i + 1}. \{song.title}";
+                    font-weight: 700;
+                    color: song.available ? black : gray;
+                    wrap: word-wrap;
+                }
+                Text {
+                    text: song.available ? song.subtitle : "\{song.subtitle} — PDF missing";
+                    color: song.available ? gray : #b00020;
+                    font-size: 14px;
+                    overflow: elide;
+                }
+            }
+            // Reorder/remove grouped tightly so they read as one control
+            // cluster for this row.
+            HorizontalLayout {
+                spacing: 2px;
+                Button {
+                    text: "▲";
+                    width: 44px;
+                    enabled: i > 0;
+                    clicked => { root.move-up(i); }
+                }
+                Button {
+                    text: "▼";
+                    width: 44px;
+                    enabled: i < root.songs.length - 1;
+                    clicked => { root.move-down(i); }
+                }
+                Button {
+                    text: "✕";
+                    width: 44px;
+                    clicked => { root.remove(i); }
+                }
+            }
+        }
+    }
+}
+
+// Live song search to add to the setlist. The field is always visible (no
+// toggle); Preview opens the song in the viewer so the user isn't choosing
+// blind. Factored out for the same wide/narrow reuse as SetlistColumn.
+component AddSongsColumn inherits VerticalLayout {
+    in property <[SongResult]> results;
+    callback search(string);
+    callback preview(int);
+    callback add(int);
+
+    spacing: 4px;
+    LineEdit {
+        placeholder-text: @tr("Search songs to add");
+        edited(text) => { root.search(text); }
+    }
+    Rectangle {
+        vertical-stretch: 1;
+        list := ListView {
+            mouse-drag-pan-enabled: true;
+            horizontal-scrollbar-policy: always-off;
+            for r[ri] in root.results : ListRow {
+                width: list.viewport-width;
+                VerticalLayout {
+                    horizontal-stretch: 1;
+                    spacing: 2px;
+                    Text {
+                        text: r.title;
+                        font-weight: 700;
+                        wrap: word-wrap;
+                    }
+                    Text {
+                        text: r.subtitle;
+                        color: gray;
+                        font-size: 16px;
+                        overflow: elide;
+                    }
+                }
+                Button {
+                    text: "Preview";
+                    clicked => { root.preview(ri); }
+                }
+                Button {
+                    text: "Add";
+                    clicked => { root.add(ri); }
+                }
+            }
+        }
+        // Guidance while no search has been run yet.
+        if root.results.length == 0 : Text {
+            width: 100%;
+            height: 100%;
+            text: "Type above to find songs to add.";
+            color: gray;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+            wrap: word-wrap;
+        }
+    }
+}
+
 export component AppWindow inherits Window {
     title: "TuneCall";
     default-font-size: 20px;
@@ -308,121 +429,46 @@ export component AppWindow inherits Window {
                         }
                     }
 
-                    HorizontalLayout {
+                    // Wide (tablet): setlist and add-search side by side. Narrow
+                    // (phone): stacked, setlist on top and add-search below — a
+                    // horizontal split below ~700px squeezes each pane so thin
+                    // that every title wraps one character per line.
+                    if root.width >= 700px : HorizontalLayout {
                         vertical-stretch: 1;
                         spacing: 12px;
-
-                        // Left column: the setlist itself.
-                        VerticalLayout {
+                        SetlistColumn {
                             horizontal-stretch: 1;
-                            spacing: 4px;
-                            Text {
-                                text: "In this setlist";
-                                font-weight: 700;
-                            }
-                            songsList := ListView {
-                                vertical-stretch: 1;
-                                mouse-drag-pan-enabled: true;
-                                horizontal-scrollbar-policy: always-off;
-                                for song[i] in root.editing-songs : ListRow {
-                                    width: songsList.viewport-width;
-                                    VerticalLayout {
-                                        horizontal-stretch: 1;
-                                        spacing: 2px;
-                                        Text {
-                                            text: "\{i + 1}. \{song.title}";
-                                            font-weight: 700;
-                                            color: song.available ? black : gray;
-                                            wrap: word-wrap;
-                                        }
-                                        Text {
-                                            text: song.available ? song.subtitle : "\{song.subtitle} — PDF missing";
-                                            color: song.available ? gray : #b00020;
-                                            font-size: 14px;
-                                            overflow: elide;
-                                        }
-                                    }
-                                    // Reorder/remove grouped tightly so they read
-                                    // as one control cluster for this row.
-                                    HorizontalLayout {
-                                        spacing: 2px;
-                                        Button {
-                                            text: "▲";
-                                            width: 44px;
-                                            enabled: i > 0;
-                                            clicked => { root.setlist-move-up(i); }
-                                        }
-                                        Button {
-                                            text: "▼";
-                                            width: 44px;
-                                            enabled: i < root.editing-songs.length - 1;
-                                            clicked => { root.setlist-move-down(i); }
-                                        }
-                                        Button {
-                                            text: "✕";
-                                            width: 44px;
-                                            clicked => { root.setlist-remove-song(i); }
-                                        }
-                                    }
-                                }
-                            }
+                            songs: root.editing-songs;
+                            move-up(i) => { root.setlist-move-up(i); }
+                            move-down(i) => { root.setlist-move-down(i); }
+                            remove(i) => { root.setlist-remove-song(i); }
                         }
-
                         VSeparator { }
-
-                        // Right column: live search to add songs. The field is
-                        // always visible (no toggle); Preview opens the song in
-                        // the viewer so the user isn't choosing blind.
-                        VerticalLayout {
+                        AddSongsColumn {
                             horizontal-stretch: 1;
-                            spacing: 4px;
-                            addSearch := LineEdit {
-                                placeholder-text: @tr("Search songs to add");
-                                edited(text) => { root.setlist-add-search(text); }
-                            }
-                            Rectangle {
-                                vertical-stretch: 1;
-                                addList := ListView {
-                                    mouse-drag-pan-enabled: true;
-                                    horizontal-scrollbar-policy: always-off;
-                                    for r[ri] in root.add-results : ListRow {
-                                        width: addList.viewport-width;
-                                        VerticalLayout {
-                                            horizontal-stretch: 1;
-                                            spacing: 2px;
-                                            Text {
-                                                text: r.title;
-                                                font-weight: 700;
-                                                wrap: word-wrap;
-                                            }
-                                            Text {
-                                                text: r.subtitle;
-                                                color: gray;
-                                                font-size: 16px;
-                                                overflow: elide;
-                                            }
-                                        }
-                                        Button {
-                                            text: "Preview";
-                                            clicked => { root.preview-song(ri); }
-                                        }
-                                        Button {
-                                            text: "Add";
-                                            clicked => { root.setlist-add-song(ri); }
-                                        }
-                                    }
-                                }
-                                // Guidance while no search has been run yet.
-                                if root.add-results.length == 0 : Text {
-                                    width: 100%;
-                                    height: 100%;
-                                    text: "Type above to find songs to add.";
-                                    color: gray;
-                                    horizontal-alignment: center;
-                                    vertical-alignment: center;
-                                    wrap: word-wrap;
-                                }
-                            }
+                            results: root.add-results;
+                            search(t) => { root.setlist-add-search(t); }
+                            preview(i) => { root.preview-song(i); }
+                            add(i) => { root.setlist-add-song(i); }
+                        }
+                    }
+                    if root.width < 700px : VerticalLayout {
+                        vertical-stretch: 1;
+                        spacing: 8px;
+                        SetlistColumn {
+                            vertical-stretch: 1;
+                            songs: root.editing-songs;
+                            move-up(i) => { root.setlist-move-up(i); }
+                            move-down(i) => { root.setlist-move-down(i); }
+                            remove(i) => { root.setlist-remove-song(i); }
+                        }
+                        HSeparator { }
+                        AddSongsColumn {
+                            vertical-stretch: 1;
+                            results: root.add-results;
+                            search(t) => { root.setlist-add-search(t); }
+                            preview(i) => { root.preview-song(i); }
+                            add(i) => { root.setlist-add-song(i); }
                         }
                     }
                 }
