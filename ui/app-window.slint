@@ -242,6 +242,11 @@ export component AppWindow inherits Window {
     callback create-setlist(string);
     callback rename-setlist(int/* index */, string/* new name */);
     callback delete-setlist(int);
+    // Delete is guarded by a confirmation dialog (an accidental tap on a phone
+    // would otherwise wipe a setlist). -1 = no dialog; >=0 = confirming that
+    // index, with its name held alongside for the prompt.
+    property <int> confirm-delete-index: -1;
+    property <string> confirm-delete-name;
     callback edit-setlist(int); // enter the editor
     callback close-setlist-editor();
     callback play-setlist(int); // open the setlist in the viewer
@@ -398,7 +403,10 @@ export component AppWindow inherits Window {
                             }
                             Button {
                                 text: "Delete";
-                                clicked => { root.delete-setlist(idx); }
+                                clicked => {
+                                    root.confirm-delete-name = s.name;
+                                    root.confirm-delete-index = idx;
+                                }
                             }
                         }
                     }
@@ -778,6 +786,52 @@ export component AppWindow inherits Window {
                             color: white;
                             font-size: 16px;
                             vertical-alignment: center;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Confirm-before-delete dialog for a setlist. A later sibling than the
+    // TabWidget so it draws on top; the dimmed scrim catches taps outside the
+    // card and cancels (same as the Cancel button).
+    if root.confirm-delete-index >= 0 : Rectangle {
+        width: root.width;
+        height: root.height;
+        background: #00000080;
+        TouchArea {
+            clicked => { root.confirm-delete-index = -1; }
+        }
+        Rectangle {
+            width: min(root.width - 48px, 360px);
+            height: card.preferred-height;
+            background: white;
+            border-radius: 8px;
+            // Swallow taps on the card so they don't reach the scrim and cancel.
+            TouchArea { }
+            card := VerticalLayout {
+                padding: 20px;
+                spacing: 16px;
+                Text {
+                    text: "Delete \"\{root.confirm-delete-name}\"?";
+                    font-weight: 700;
+                    wrap: word-wrap;
+                    horizontal-alignment: center;
+                }
+                HorizontalLayout {
+                    spacing: 8px;
+                    Button {
+                        text: "Cancel";
+                        horizontal-stretch: 1;
+                        clicked => { root.confirm-delete-index = -1; }
+                    }
+                    Button {
+                        text: "Delete";
+                        horizontal-stretch: 1;
+                        clicked => {
+                            root.delete-setlist(root.confirm-delete-index);
+                            root.confirm-delete-index = -1;
                         }
                     }
                 }
