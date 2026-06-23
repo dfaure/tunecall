@@ -1,14 +1,16 @@
 # Google Play publishing checklist
 
-Non-code requirements to get TuneCall onto the Play Store. (Build/signing gates
-live in [RELEASE_SIGNING.md](RELEASE_SIGNING.md); the technical state — AAB,
-SDK 35, permissions — is already handled in `app/build.gradle` and the manifest.)
+Non-code requirements to get TuneCall onto the Play Store. (One-time signing
+setup lives in [RELEASE_SIGNING.md](RELEASE_SIGNING.md); the per-release
+build/upload steps in [RELEASE_HOWTO.md](RELEASE_HOWTO.md); the technical state —
+AAB, SDK 35, permissions — is already handled in `app/build.gradle` and the
+manifest.)
 
 ## Prerequisites
 
 - A **Google Play developer account** (one-time US$25 registration). Identity
   verification can take a few days — start early.
-- The signed `app-release.aab` from [RELEASE_SIGNING.md](RELEASE_SIGNING.md).
+- The signed `app-release.aab` (build it per [RELEASE_HOWTO.md](RELEASE_HOWTO.md)).
 
 ## B5 — Privacy policy + Data Safety
 
@@ -60,8 +62,9 @@ makes the copyright position clear to reviewers.
 
 ## Release flow recap
 
-1. Bump `versionCode`/`versionName` in `app/build.gradle`.
-2. Build the signed `.aab` (see RELEASE_SIGNING.md).
+1. Bump the version: `versionName` in `Cargo.toml`, `versionCode` in
+   `app/build.gradle` (see [RELEASE_HOWTO.md](RELEASE_HOWTO.md)).
+2. Build the signed `.aab` (see [RELEASE_HOWTO.md](RELEASE_HOWTO.md)).
 3. Play Console → create app → upload `.aab` to **internal testing** first.
 4. Fill in Data Safety, content rating, store listing, privacy policy URL.
 5. Roll out internal testing → closed/open testing → production.

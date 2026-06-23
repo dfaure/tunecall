@@ -83,4 +83,4 @@ Search works without pdfium; only rendering a page needs it.
 ## Platform status
 
 - Desktop (Linux): viewer verified building/clippy/tests; in-app rendering verified. Indexer builds every book DB from its `.index` sidecar.
-- Android: builds and runs on-device (tablet/Termux build); search and PDF rendering verified there. `android_main` is `#[cfg(target_os = "android")]`, so the desktop build never type-checks it. Release packaging for Google Play is set up — App Bundle, `compile/targetSdk 35`, AGP 8.7, and signing externalized to a gitignored `keystore.properties`. See `docs/RELEASE_SIGNING.md` and `docs/PLAY_PUBLISHING.md`.
+- Android: builds and runs on-device (tablet/Termux build); search and PDF rendering verified there. `android_main` is `#[cfg(target_os = "android")]`, so the desktop build never type-checks it. Release packaging for Google Play is set up — App Bundle, `compile/targetSdk 35`, AGP 8.7, and signing externalized to a gitignored `keystore.properties`. See `docs/RELEASE_SIGNING.md` (one-time signing setup), `docs/RELEASE_HOWTO.md` (per-release build/upload), and `docs/PLAY_PUBLISHING.md`.

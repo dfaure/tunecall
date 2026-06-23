@@ -28,7 +28,8 @@ too degraded for OCR — see `indexer/README.md`). Per-book offsets/titles live 
 
 Build/packaging gates are done in-repo (App Bundle, SDK 35, AGP 8.7, manifest
 permissions, signing wired to `keystore.properties`). Remaining steps are
-external — see `docs/PLAY_PUBLISHING.md` and `docs/RELEASE_SIGNING.md`:
+external — see `docs/PLAY_PUBLISHING.md`, `docs/RELEASE_SIGNING.md` (one-time
+signing setup), and `docs/RELEASE_HOWTO.md` (per-release build/upload):
 
 - [ ] Create the release/upload keystore + `keystore.properties` (RELEASE_SIGNING.md).
 - [ ] Privacy policy URL + Data Safety form (ideally serve the index download
