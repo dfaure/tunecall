@@ -286,7 +286,34 @@ fn open_result_at(
     };
     show_page(ui, &state);
     *viewer.borrow_mut() = Some(state);
+    // A freshly opened song hasn't been added to the setlist yet; reset the
+    // viewer's Add confirmation (only meaningful while in add mode).
+    ui.set_viewer_added(false);
     ui.set_viewer_visible(true);
+}
+
+/// Append `song` to the setlist currently being edited and refresh the UI.
+/// Shared by the list's Add button and the viewer's Add button.
+fn add_song_to_editing(
+    ui: &AppWindow,
+    setlists: &Rc<RefCell<Vec<setlist::Setlist>>>,
+    editing: &Rc<RefCell<Option<usize>>>,
+    titles: &Rc<RefCell<HashMap<String, String>>>,
+    song: Song,
+) {
+    let Some(i) = *editing.borrow() else {
+        return;
+    };
+    if let Some(sl) = setlists.borrow_mut().get_mut(i) {
+        sl.songs.push(setlist::SetlistSong {
+            title: song.title,
+            book: song.book,
+            page: song.page,
+        });
+    }
+    save_setlists(setlists);
+    refresh_editor(ui, setlists, editing, titles);
+    refresh_setlists(ui, setlists);
 }
 
 pub fn tunecall_main() -> Result<(), Box<dyn Error>> {
@@ -391,7 +418,9 @@ pub fn tunecall_main() -> Result<(), Box<dyn Error>> {
         let book_titles = book_titles.clone();
         move |idx| {
             let ui = ui_handle.unwrap();
-            // The viewer navigates the current search hits.
+            // The viewer navigates the current search hits. No setlist is being
+            // built here, so the viewer's Add button stays hidden.
+            ui.set_viewer_add_mode(false);
             *nav.borrow_mut() = results.borrow().clone();
             open_result_at(&ui, &nav, &viewer, &book_titles, idx as usize);
         }
@@ -658,6 +687,8 @@ pub fn tunecall_main() -> Result<(), Box<dyn Error>> {
             if songs.is_empty() {
                 return;
             }
+            // Playing an existing setlist, not building one: hide the Add button.
+            ui.set_viewer_add_mode(false);
             *nav.borrow_mut() = songs;
             open_result_at(&ui, &nav, &viewer, &book_titles, 0);
         }
@@ -702,19 +733,7 @@ pub fn tunecall_main() -> Result<(), Box<dyn Error>> {
             let Some(song) = add_hits.borrow().get(ri as usize).cloned() else {
                 return;
             };
-            let Some(i) = *editing.borrow() else {
-                return;
-            };
-            if let Some(sl) = setlists.borrow_mut().get_mut(i) {
-                sl.songs.push(setlist::SetlistSong {
-                    title: song.title,
-                    book: song.book,
-                    page: song.page,
-                });
-            }
-            save_setlists(&setlists);
-            refresh_editor(&ui, &setlists, &editing, &book_titles);
-            refresh_setlists(&ui, &setlists);
+            add_song_to_editing(&ui, &setlists, &editing, &book_titles, song);
         }
     });
 
@@ -727,13 +746,37 @@ pub fn tunecall_main() -> Result<(), Box<dyn Error>> {
         move |ri| {
             let ui = ui_handle.unwrap();
             // add_hits are library songs (their PDF is installed), so the viewer
-            // can render them straight away. A single-song nav list disables
-            // Prev/Next-result.
-            let Some(song) = add_hits.borrow().get(ri as usize).cloned() else {
+            // can render them straight away. The viewer navigates the whole add
+            // search hit list (Prev/Next-result), so you can flip through the
+            // candidates to compare before adding — same as the Search tab — and
+            // offers an Add button so the chosen one goes straight in.
+            ui.set_viewer_add_mode(true);
+            *nav.borrow_mut() = add_hits.borrow().clone();
+            open_result_at(&ui, &nav, &viewer, &book_titles, ri as usize);
+        }
+    });
+
+    // Add button inside the viewer (preview-to-add flow): add the song currently
+    // on screen — nav[result_idx] — to the setlist being edited, without going
+    // back to the list.
+    ui.on_viewer_add_song({
+        let ui_handle = ui.as_weak();
+        let setlists = setlists.clone();
+        let editing = editing.clone();
+        let nav = nav.clone();
+        let viewer = viewer.clone();
+        let book_titles = book_titles.clone();
+        move || {
+            let ui = ui_handle.unwrap();
+            let Some(song) = viewer
+                .borrow()
+                .as_ref()
+                .and_then(|state| nav.borrow().get(state.result_idx).cloned())
+            else {
                 return;
             };
-            *nav.borrow_mut() = vec![song];
-            open_result_at(&ui, &nav, &viewer, &book_titles, 0);
+            add_song_to_editing(&ui, &setlists, &editing, &book_titles, song);
+            ui.set_viewer_added(true);
         }
     });
 

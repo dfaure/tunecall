@@ -302,6 +302,14 @@ export component AppWindow inherits Window {
     in property <int> result-index; // 0-based position of the open song in the nav list
     in property <int> result-count; // total number of songs being navigated
     in property <string> viewer-error;
+    // When the viewer was opened by previewing setlist add-search hits, it
+    // offers an Add button so the chosen song goes straight into the setlist
+    // (no need to remember it and find it again in the list). `viewer-added`
+    // flips to true once the current song is added and resets on navigation,
+    // so the button can confirm and avoid silent duplicate taps.
+    in property <bool> viewer-add-mode;
+    in property <bool> viewer-added;
+    callback viewer-add-song();
     // Zoom state (pinch / ctrl+wheel / double-tap). 1.0 = fit the page area;
     // the pan offsets are the zoomed page's position inside it (always <= 0).
     // Page flips keep the zoom (a margin crop survives across pages); Rust
@@ -502,6 +510,10 @@ export component AppWindow inherits Window {
                     if root.width < 700px : VerticalLayout {
                         vertical-stretch: 1;
                         spacing: 8px;
+                        // Give the add-search pane twice the height of the setlist
+                        // pane (~33/66): its search field summons the virtual
+                        // keyboard, which would otherwise cover an even split's
+                        // results.
                         SetlistColumn {
                             vertical-stretch: 1;
                             songs: root.editing-songs;
@@ -511,7 +523,7 @@ export component AppWindow inherits Window {
                         }
                         HSeparator { }
                         AddSongsColumn {
-                            vertical-stretch: 1;
+                            vertical-stretch: 2;
                             results: root.add-results;
                             search(t) => { root.setlist-add-search(t); }
                             preview(i) => { root.preview-song(i); }
@@ -635,6 +647,12 @@ export component AppWindow inherits Window {
                     text: "Next ›";
                     enabled: root.result-index < root.result-count - 1;
                     clicked => { root.next-result(); }
+                }
+                if root.viewer-add-mode : Button {
+                    text: root.viewer-added ? "Added ✓" : "Add";
+                    primary: !root.viewer-added;
+                    enabled: !root.viewer-added;
+                    clicked => { root.viewer-add-song(); }
                 }
                 Button {
                     text: "Close";
