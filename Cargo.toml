@@ -52,4 +52,10 @@ required-features = ["with-binary"]
 default = ["with-binary"]
 with-binary = []
 
-# Strip symbols on Android: see .cargo/config.toml
+# Keep line tables in release builds so the native (Android) .so carries enough
+# DWARF for Play to symbolicate native crash/ANR traces with line numbers (not
+# just function names). AGP strips the .so delivered to users, so this debuginfo
+# only lands in the bundle's server-side symbol file, never on devices. The
+# Android build no longer strips symbols — see .cargo/config.toml and build_bundle.sh.
+[profile.release]
+debug = "line-tables-only"

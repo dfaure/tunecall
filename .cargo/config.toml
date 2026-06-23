@@ -1,6 +1,8 @@
-# Strip symbols in release builds on Android
-[target.aarch64-linux-android]
-rustflags = ["-C", "strip=symbols"]
+# We deliberately do NOT strip the Android release .so in the Rust build. AGP
+# extracts its debug symbols into the AAB's server-side symbol file (so Play can
+# symbolicate native crash/ANR traces — ndk.debugSymbolLevel in app/build.gradle)
+# and then strips the .so it ships to users. Stripping here would throw the
+# symbols away before AGP can save them. See build_bundle.sh.
 
 [target.x86_64-pc-windows-msvc]
 # Increase default stack size to avoid running out of stack

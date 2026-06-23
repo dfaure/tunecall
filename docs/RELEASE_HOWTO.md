@@ -55,10 +55,12 @@ keytool -printcert -jarfile app/build/outputs/bundle/release/app-release.aab
 [RELEASE_SIGNING.md](RELEASE_SIGNING.md).)
 
 The bundle also carries native debug symbols (`ndk.debugSymbolLevel = 'FULL'` in
-`app/build.gradle`), so Play can symbolicate native crash/ANR stack traces. If
-Play still warns *"no debug symbols"*, the `.so` files were stripped before
-Gradle packaged them — build the Rust lib without stripping (the default `cargo`
-profiles don't strip).
+`app/build.gradle`), so Play can symbolicate native crash/ANR stack traces. This
+relies on the Rust `.so` reaching Gradle **unstripped**: `build_bundle.sh` does
+not run `strip`, `.cargo/config.toml` no longer passes `-C strip=symbols`, and
+`Cargo.toml`'s `[profile.release]` keeps line tables. If Play warns *"no debug
+symbols"* again, check those three didn't regress (AGP itself still strips the
+`.so` it ships to users, so leaving symbols in the build costs no download size).
 
 ## 3. Upload to the Play Console
 
