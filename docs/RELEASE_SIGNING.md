@@ -1,12 +1,13 @@
-# Release signing (A1)
+# Release signing setup (one-time)
 
 Google Play will **not** accept an app signed with the debug key. The release
 build reads its signing config from a **gitignored** `keystore.properties` at the
 repo root; when that file is absent, release builds fall back to the debug
 keystore (fine for sideloading, rejected by Play).
 
-This is a one-time setup on the build device (the Android tablet / Termux, or
-wherever you run `./gradlew`).
+This is a **one-time** setup on the build device (the Android tablet / Termux, or
+wherever you run `./gradlew`). Once it's done you never repeat it — to cut an
+actual release each time, follow [RELEASE_HOWTO.md](RELEASE_HOWTO.md).
 
 ## 1. Understand the two keys (Play App Signing)
 
@@ -56,42 +57,10 @@ keyPassword=YOUR_KEY_PASSWORD
 Use the **absolute path** to the `.jks`. `app/build.gradle` reads these four
 keys for the `release` signing config.
 
-## 4. Build the release bundle
+That's the setup done. To build and upload a release, see
+[RELEASE_HOWTO.md](RELEASE_HOWTO.md).
 
-```bash
-cargo build --lib --target aarch64-linux-android \
-    --no-default-features \
-    --features slint/backend-android-activity-06
-./gradlew bundleRelease
-```
-
-The signed App Bundle lands at:
-
-```
-app/build/outputs/bundle/release/app-release.aab
-```
-
-Upload that `.aab` to the Play Console. Verify it's **not** debug-signed:
-
-```bash
-# the cert should be your "upload" key, not "androiddebugkey"
-keytool -printcert -jarfile app/build/outputs/bundle/release/app-release.aab
-```
-
-## 5. Bump the version for each release
-
-Two numbers:
-
-- The human-readable `versionName` (e.g. `1.0.0`, shown on Play and in the app's
-  Books-tab footer) is **read from `Cargo.toml`'s `[package] version`** — that is
-  the single source of truth. Bump it there; `app/build.gradle` and the in-app
-  footer both pick it up. Don't hardcode a version in `build.gradle`.
-- `versionCode` (the integer in `app/build.gradle`) must increase on **every**
-  upload — Play rejects a re-used `versionCode`. Bump it independently of
-  `versionName` (e.g. a hotfix that keeps the same `versionName` still needs a
-  higher `versionCode`).
-
-## Troubleshooting
+## Troubleshooting (signing)
 
 - *Release build still signed with `androiddebugkey`* → `keystore.properties` is
   missing or not at the repo root; the build silently fell back to debug.
