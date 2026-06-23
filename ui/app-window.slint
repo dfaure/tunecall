@@ -36,6 +36,42 @@ component VSeparator inherits Rectangle {
     background: #0000001a;
 }
 
+// A small square button whose glyph is a vector Path, not a font character.
+// The Android system font (Roboto) has no ▲ ▼ ✕ glyphs, so a Button with those
+// as text renders an empty-box tofu; a Path is drawn by the renderer and needs
+// no font coverage. `commands` is SVG path data in a 24x24 viewbox; `filled`
+// picks fill (triangles) vs stroke (the cross).
+component IconButton inherits Rectangle {
+    in property <string> commands;
+    in property <bool> filled: true;
+    in property <bool> enabled: true;
+    callback clicked <=> ta.clicked;
+
+    width: 44px;
+    height: 36px;
+    border-radius: 4px;
+    border-width: 1px;
+    border-color: #00000022;
+    background: !root.enabled ? #00000008 : ta.pressed ? #00000026 : ta.has-hover ? #00000014 : #0000000a;
+    opacity: root.enabled ? 1.0 : 0.35;
+
+    ta := TouchArea {
+        enabled: root.enabled;
+    }
+    Path {
+        width: 22px;
+        height: 22px;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        viewbox-width: 24;
+        viewbox-height: 24;
+        commands: root.commands;
+        fill: root.filled ? black : transparent;
+        stroke: root.filled ? transparent : black;
+        stroke-width: 2.5px;
+    }
+}
+
 // One row of a ListView: a hover highlight, the row content (laid out
 // horizontally via @children), and a hairline bottom separator. Used by every
 // list so rows read as discrete units instead of floating text.
@@ -127,21 +163,19 @@ component SetlistColumn inherits VerticalLayout {
             // cluster for this row.
             HorizontalLayout {
                 spacing: 2px;
-                Button {
-                    text: "▲";
-                    width: 44px;
+                IconButton {
+                    commands: "M 12 7 L 19 17 L 5 17 Z";
                     enabled: i > 0;
                     clicked => { root.move-up(i); }
                 }
-                Button {
-                    text: "▼";
-                    width: 44px;
+                IconButton {
+                    commands: "M 5 7 L 19 7 L 12 17 Z";
                     enabled: i < root.songs.length - 1;
                     clicked => { root.move-down(i); }
                 }
-                Button {
-                    text: "✕";
-                    width: 44px;
+                IconButton {
+                    commands: "M 7 7 L 17 17 M 7 17 L 17 7";
+                    filled: false;
                     clicked => { root.remove(i); }
                 }
             }
