@@ -625,7 +625,16 @@ export component AppWindow inherits Window {
         background: white;
 
         VerticalLayout {
-            padding: 8px;
+            // Keep the content (toolbar, page badge) clear of the system bars.
+            // The overlay draws edge-to-edge, so on a phone with on-screen nav
+            // buttons the bottom badge would otherwise sit behind them. Insets
+            // are 0 on desktop and where there is no notch/bar. The white
+            // Rectangle still fills behind the bars so they sit on white, not a
+            // gap.
+            padding-left: 8px + root.safe-area-insets.left;
+            padding-right: 8px + root.safe-area-insets.right;
+            padding-top: 8px + root.safe-area-insets.top;
+            padding-bottom: 8px + root.safe-area-insets.bottom;
             spacing: 6px;
 
             // Top bar navigates the nav list (the search hits for a song, or the
