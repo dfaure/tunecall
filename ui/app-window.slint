@@ -649,7 +649,7 @@ export component AppWindow inherits Window {
                     clicked => { root.next-result(); }
                 }
                 if root.viewer-add-mode : Button {
-                    text: root.viewer-added ? "Added ✓" : "Add";
+                    text: root.viewer-added ? "Added" : "Add";
                     primary: !root.viewer-added;
                     enabled: !root.viewer-added;
                     clicked => { root.viewer-add-song(); }
