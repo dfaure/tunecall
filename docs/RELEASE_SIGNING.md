@@ -80,9 +80,16 @@ keytool -printcert -jarfile app/build/outputs/bundle/release/app-release.aab
 
 ## 5. Bump the version for each release
 
-In `app/build.gradle`, increase `versionCode` (integer, must go up every upload)
-and set a human `versionName` (e.g. `"1.1"`). Play rejects a re-used
-`versionCode`.
+Two numbers:
+
+- The human-readable `versionName` (e.g. `1.0.0`, shown on Play and in the app's
+  Books-tab footer) is **read from `Cargo.toml`'s `[package] version`** — that is
+  the single source of truth. Bump it there; `app/build.gradle` and the in-app
+  footer both pick it up. Don't hardcode a version in `build.gradle`.
+- `versionCode` (the integer in `app/build.gradle`) must increase on **every**
+  upload — Play rejects a re-used `versionCode`. Bump it independently of
+  `versionName` (e.g. a hotfix that keeps the same `versionName` still needs a
+  higher `versionCode`).
 
 ## Troubleshooting
 

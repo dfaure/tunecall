@@ -13,6 +13,18 @@ if (hasReleaseKeystore) {
     keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
 }
 
+// Single source of truth for the human-readable version: Cargo.toml's
+// package.version. The in-app footer reads the same value via
+// env!("CARGO_PKG_VERSION"), so the Play listing and the UI can't drift.
+// versionCode (Play's monotonic integer) is bumped manually below.
+def cargoVersion = {
+    def matcher = (rootProject.file("Cargo.toml").text =~ /(?m)^version\s*=\s*"([^"]+)"/)
+    if (!matcher) {
+        throw new GradleException("Could not find package version in Cargo.toml")
+    }
+    return matcher[0][1]
+}()
+
 android {
     ndkVersion = "25.2.9519653"
     compileSdk = 35
@@ -45,7 +57,7 @@ android {
         minSdk = 28
         targetSdk = 35
         versionCode = 1
-        versionName = "1.0"
+        versionName = cargoVersion
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
