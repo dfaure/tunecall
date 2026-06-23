@@ -54,6 +54,12 @@ keytool -printcert -jarfile app/build/outputs/bundle/release/app-release.aab
 (If it shows `androiddebugkey`, the signing setup is missing — see
 [RELEASE_SIGNING.md](RELEASE_SIGNING.md).)
 
+The bundle also carries native debug symbols (`ndk.debugSymbolLevel = 'FULL'` in
+`app/build.gradle`), so Play can symbolicate native crash/ANR stack traces. If
+Play still warns *"no debug symbols"*, the `.so` files were stripped before
+Gradle packaged them — build the Rust lib without stripping (the default `cargo`
+profiles don't strip).
+
 ## 3. Upload to the Play Console
 
 Upload `app-release.aab` to your release track (e.g. *Internal testing* /
