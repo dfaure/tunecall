@@ -13,6 +13,7 @@ mod db;
 mod immersive;
 mod pdf;
 mod setlist;
+mod settings;
 mod storage;
 mod sync;
 
@@ -62,9 +63,17 @@ fn android_main(app: slint::android::AndroidApp) -> Result<(), Box<dyn Error>> {
         .expect("Android provided no app data path");
     storage::set_data_dir(data_dir);
 
-    // Log to a file inside the app data dir (shared storage like Download/ is
-    // not writable on modern Android without extra permissions).
-    flexi_logger::Logger::try_with_env_or_str("debug,android_activity::activity_impl::glue=off")?
+    // File logging is opt-in (Books tab toggle): off by default so we don't
+    // write a debug log for every user. The logger can't be reconfigured after
+    // start(), so the choice is read once here and a toggle change only takes
+    // effect on the next launch. When disabled we install no logger, so the
+    // log:: calls below simply no-op.
+    if settings::load().file_logging {
+        // Log to a file inside the app data dir (shared storage like Download/
+        // is not writable on modern Android without extra permissions).
+        flexi_logger::Logger::try_with_env_or_str(
+            "debug,android_activity::activity_impl::glue=off",
+        )?
         .log_to_file(
             flexi_logger::FileSpec::default()
                 .directory(storage::data_dir())
@@ -72,6 +81,7 @@ fn android_main(app: slint::android::AndroidApp) -> Result<(), Box<dyn Error>> {
         )
         .format(flexi_logger::detailed_format)
         .start()?;
+    }
 
     log::info!("tunecall started");
     // Stash the app handle for the immersive-fullscreen JNI calls (the viewer
@@ -378,6 +388,21 @@ pub fn tunecall_main() -> Result<(), Box<dyn Error>> {
         )
         .into(),
     );
+
+    // Debug-log toggle (Books tab). Reflect the saved state, and persist any
+    // change. The Android logger only reads this at startup, so the change takes
+    // effect on the next launch (the UI says so).
+    ui.set_file_logging(settings::load().file_logging);
+    // Folder the log lands in (data-dir root), shown in the "logging on" dialog
+    // so the user can find it over USB.
+    ui.set_log_dir(storage::data_dir().display().to_string().into());
+    ui.on_set_file_logging(|enabled| {
+        if let Err(e) = settings::save(&settings::Settings {
+            file_logging: enabled,
+        }) {
+            log::warn!("saving settings failed: {e}");
+        }
+    });
 
     // The viewer asks to go fullscreen (hide the system bars) while it's open;
     // Android-only, a no-op elsewhere (the callback stays unconnected).

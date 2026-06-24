@@ -1,4 +1,4 @@
-import { Button, LineEdit, ListView, TabWidget, Palette } from "std-widgets.slint";
+import { Button, LineEdit, ListView, TabWidget, Palette, Switch } from "std-widgets.slint";
 
 struct SongResult {
     title: string,
@@ -69,6 +69,35 @@ component IconButton inherits Rectangle {
         fill: root.filled ? black : transparent;
         stroke: root.filled ? transparent : black;
         stroke-width: 2.5px;
+    }
+}
+
+// A modal dialog: a dimmed full-window scrim with a centered white card. Tapping
+// the scrim outside the card fires `dismissed` (taps on the card are swallowed);
+// the caller slots the card's content via @children, laid out in a padded
+// vertical stack. Placed as a direct child of the window so it draws on top.
+component MessageBox inherits Rectangle {
+    callback dismissed();
+
+    width: 100%;
+    height: 100%;
+    background: #00000080;
+
+    TouchArea {
+        clicked => { root.dismissed(); }
+    }
+    Rectangle {
+        width: min(parent.width - 48px, 360px);
+        height: card.preferred-height;
+        background: white;
+        border-radius: 8px;
+        // Swallow taps on the card so they don't reach the scrim and dismiss.
+        TouchArea { }
+        card := VerticalLayout {
+            padding: 20px;
+            spacing: 16px;
+            @children
+        }
     }
 }
 
@@ -268,6 +297,15 @@ export component AppWindow inherits Window {
     // --- books list (setup-time: which PDFs are indexed/supported) ---
     in property <[BookEntry]> book-list;
     in property <string> about; // app name, version and build (footer of the Books tab)
+    // Opt-in debug logging (Books tab). Reflects the saved setting; the callback
+    // persists a change. Takes effect on the next app launch.
+    in-out property <bool> file-logging;
+    callback set-file-logging(bool);
+    // Folder the log file is written to (Rust sets it to the data dir). Shown in
+    // a one-time dialog when logging is switched on, so the user knows where to
+    // find the file (over USB) without parking the path on the Books screen.
+    in property <string> log-dir;
+    property <bool> show-log-info;
 
     // --- setlists ---
     in property <[SetlistEntry]> setlists;
@@ -625,6 +663,36 @@ export component AppWindow inherits Window {
                     }
                 }
 
+                // Opt-in debug logging. Off by default; a log file is written
+                // only when the user turns this on (and only after a restart).
+                HorizontalLayout {
+                    spacing: 8px;
+                    Text {
+                        text: "Save debug log to file";
+                        vertical-alignment: center;
+                        horizontal-stretch: 1;
+                        wrap: word-wrap;
+                    }
+                    Switch {
+                        checked: root.file-logging;
+                        toggled => {
+                            root.file-logging = self.checked;
+                            root.set-file-logging(self.checked);
+                            // Tell the user where the file lands when they turn
+                            // it on; no need to nag on the way off.
+                            if self.checked {
+                                root.show-log-info = true;
+                            }
+                        }
+                    }
+                }
+                Text {
+                    text: "For bug reports. Takes effect after restarting the app.";
+                    color: gray;
+                    font-size: 14px;
+                    wrap: word-wrap;
+                }
+
                 // App name / version / build, parked at the bottom so it's
                 // available for bug reports without being intrusive.
                 Text {
@@ -880,48 +948,52 @@ export component AppWindow inherits Window {
     }
 
     // Confirm-before-delete dialog for a setlist. A later sibling than the
-    // TabWidget so it draws on top; the dimmed scrim catches taps outside the
-    // card and cancels (same as the Cancel button).
-    if root.confirm-delete-index >= 0 : Rectangle {
-        width: root.width;
-        height: root.height;
-        background: #00000080;
-        TouchArea {
-            clicked => { root.confirm-delete-index = -1; }
+    // TabWidget so it draws on top; tapping outside the card cancels (same as
+    // the Cancel button).
+    if root.confirm-delete-index >= 0 : MessageBox {
+        dismissed => { root.confirm-delete-index = -1; }
+        Text {
+            text: "Delete \"\{root.confirm-delete-name}\"?";
+            font-weight: 700;
+            wrap: word-wrap;
+            horizontal-alignment: center;
         }
-        Rectangle {
-            width: min(root.width - 48px, 360px);
-            height: card.preferred-height;
-            background: white;
-            border-radius: 8px;
-            // Swallow taps on the card so they don't reach the scrim and cancel.
-            TouchArea { }
-            card := VerticalLayout {
-                padding: 20px;
-                spacing: 16px;
-                Text {
-                    text: "Delete \"\{root.confirm-delete-name}\"?";
-                    font-weight: 700;
-                    wrap: word-wrap;
-                    horizontal-alignment: center;
-                }
-                HorizontalLayout {
-                    spacing: 8px;
-                    Button {
-                        text: "Cancel";
-                        horizontal-stretch: 1;
-                        clicked => { root.confirm-delete-index = -1; }
-                    }
-                    Button {
-                        text: "Delete";
-                        horizontal-stretch: 1;
-                        clicked => {
-                            root.delete-setlist(root.confirm-delete-index);
-                            root.confirm-delete-index = -1;
-                        }
-                    }
+        HorizontalLayout {
+            spacing: 8px;
+            Button {
+                text: "Cancel";
+                horizontal-stretch: 1;
+                clicked => { root.confirm-delete-index = -1; }
+            }
+            Button {
+                text: "Delete";
+                horizontal-stretch: 1;
+                clicked => {
+                    root.delete-setlist(root.confirm-delete-index);
+                    root.confirm-delete-index = -1;
                 }
             }
+        }
+    }
+
+    // One-time info shown when debug logging is switched on: tells the user where
+    // the log file lands and that it's reachable over USB (same folder they
+    // copied the PDFs into). Keeps the path out of the always-visible Books UI.
+    if root.show-log-info : MessageBox {
+        dismissed => { root.show-log-info = false; }
+        Text {
+            text: "Debug logging on";
+            font-weight: 700;
+            horizontal-alignment: center;
+        }
+        Text {
+            text: "After you restart the app, a log file is written to:\n\n\{root.log-dir}\n\nConnect the device by USB to copy it off for a bug report.";
+            wrap: word-wrap;
+            horizontal-alignment: center;
+        }
+        Button {
+            text: "OK";
+            clicked => { root.show-log-info = false; }
         }
     }
 }

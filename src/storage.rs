@@ -54,3 +54,9 @@ pub fn download_dir() -> PathBuf {
 pub fn setlists_path() -> PathBuf {
     data_dir().join("setlists.json")
 }
+
+/// File holding the user's app settings (JSON). Lives in the data-dir root,
+/// beside `setlists.json`.
+pub fn settings_path() -> PathBuf {
+    data_dir().join("settings.json")
+}
