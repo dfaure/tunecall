@@ -54,16 +54,46 @@ keytool -printcert -jarfile app/build/outputs/bundle/release/app-release.aab
 (If it shows `androiddebugkey`, the signing setup is missing — see
 [RELEASE_SIGNING.md](RELEASE_SIGNING.md).)
 
-The bundle also carries native debug symbols (`ndk.debugSymbolLevel = 'FULL'` in
-`app/build.gradle`), so Play can symbolicate native crash/ANR stack traces. This
-relies on the Rust `.so` reaching Gradle **unstripped**: `build_bundle.sh` does
-not run `strip`, `.cargo/config.toml` no longer passes `-C strip=symbols`, and
-`Cargo.toml`'s `[profile.release]` keeps line tables. If Play warns *"no debug
-symbols"* again, check those three didn't regress (AGP itself still strips the
-`.so` it ships to users, so leaving symbols in the build costs no download size).
-
 ## 3. Upload to the Play Console
 
 Upload `app-release.aab` to your release track (e.g. *Internal testing* /
 *Closed testing*). If Play rejects the version code as already used, go back to
 step 1 and bump `versionCode`.
+
+## Troubleshooting
+
+### Upload fails after a long "optimizing" phase (generic error)
+
+Play shows a generic *"An error occurred while uploading the Android App
+Bundle. Try again later."* after a long *optimizing* step.
+
+Cause we hit: the release build shipped an **unstripped** `libtunecall.so`
+(~136 MB, full DWARF). Play's optimizing phase (split-APK generation) can't
+process such an oversized native library and aborts with this generic message.
+Inspect a built `.aab` with `unzip -l app-release.aab` — `base/lib/arm64-v8a/`
+should hold a small (few-MB) stripped `.so`, and `file` on the extracted lib
+should say `stripped`.
+
+**Keep the Android `.so` stripped.** Two strips do that and must stay:
+`-C strip=symbols` in `.cargo/config.toml` and `aarch64-linux-android-strip -s`
+in `build_bundle.sh`. Do **not** add `[profile.release] debug = ...` to
+`Cargo.toml`.
+
+### "App not optimized" / missing native debug symbols warning
+
+Play warns (non-blocking) that the bundle ships native code without debug
+symbols, so it can't symbolicate native (Rust/pdfium) crash/ANR traces.
+
+What **did not work**: setting `ndk { debugSymbolLevel = 'FULL' }` in
+`app/build.gradle` and un-stripping the `.so` (commits c3ed458, 0a27df8,
+reverted). AGP's symbol extraction needs the NDK `objcopy`/`strip` toolchain,
+which isn't present in the Termux/tablet Gradle build, so AGP silently extracted
+**nothing** and packaged the unstripped 136 MB `.so` as-is — no `debugsymbols`
+entry in the AAB, and the upload failure above. Worst of both worlds.
+
+The warning is only a warning; ignore it, or address it **out of band**: keep
+the shipped `.so` stripped, build an unstripped copy separately, run the NDK's
+`objcopy --only-keep-debug` (or `llvm-objcopy`) on it, zip the result as
+`native-debug-symbols.zip`, and upload that manually in the Play Console
+(*App bundle explorer → Downloads → upload native debug symbols*). Do not
+re-enable `debugSymbolLevel` in the Gradle build.

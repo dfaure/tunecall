@@ -66,16 +66,6 @@ android {
             // No Java/Kotlin to shrink (NativeActivity + prebuilt .so), so R8
             // gives almost nothing; leave minify off.
             signingConfig = hasReleaseKeystore ? signingConfigs.release : signingConfigs.debug
-            // Extract native (Rust/pdfium) debug symbols into the AAB so Play
-            // can symbolicate native crash/ANR stack traces (Android vitals).
-            // The symbols live in the bundle metadata only — Play keeps them
-            // server-side and strips them from the APK delivered to users, so
-            // there's no download-size cost. FULL keeps line numbers when the
-            // .so carries DWARF (a non-stripped build); else it degrades to the
-            // symbol table (function names). Needs the NDK (ndkVersion above).
-            ndk {
-                debugSymbolLevel = 'FULL'
-            }
         }
         debug {
             minifyEnabled = false
