@@ -9,6 +9,8 @@ use std::rc::Rc;
 use slint::{Image, VecModel};
 
 mod db;
+#[cfg(target_os = "android")]
+mod immersive;
 mod pdf;
 mod setlist;
 mod storage;
@@ -72,6 +74,9 @@ fn android_main(app: slint::android::AndroidApp) -> Result<(), Box<dyn Error>> {
         .start()?;
 
     log::info!("tunecall started");
+    // Stash the app handle for the immersive-fullscreen JNI calls (the viewer
+    // hides the system bars). Clone: slint::android::init consumes `app`.
+    immersive::init(app.clone());
     slint::android::init(app).unwrap();
     log::debug!("slint::android initialized");
     let ret = tunecall_main();
@@ -373,6 +378,11 @@ pub fn tunecall_main() -> Result<(), Box<dyn Error>> {
         )
         .into(),
     );
+
+    // The viewer asks to go fullscreen (hide the system bars) while it's open;
+    // Android-only, a no-op elsewhere (the callback stays unconnected).
+    #[cfg(target_os = "android")]
+    ui.on_set_immersive(|enabled| immersive::set(enabled));
 
     ui.on_search({
         let ui_handle = ui.as_weak();

@@ -323,11 +323,17 @@ export component AppWindow inherits Window {
     callback prev-result(); // across the nav list (search results or a setlist)
     callback next-result();
     callback close-viewer();
+    // Ask the platform to go fullscreen (hide the status/nav bars) while the
+    // viewer is open and restore them when it closes. Android-only; a no-op
+    // elsewhere. Hiding the bars drops safe-area-insets to 0, so the viewer's
+    // inset padding reclaims the freed space.
+    callback set-immersive(bool);
 
     // On Android the search field keeps focus while the viewer covers it, so its
     // text caret/selection handles bleed through over the PDF. Drop focus while
     // the viewer is up and restore it (only on the Search tab) when we return.
     changed viewer-visible => {
+        root.set-immersive(root.viewer-visible);
         if (root.viewer-visible) {
             searchLineEdit.clear-focus();
         } else if (root.active-tab == 0) {
