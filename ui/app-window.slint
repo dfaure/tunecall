@@ -1,4 +1,4 @@
-import { Button, LineEdit, ListView, TabWidget } from "std-widgets.slint";
+import { Button, LineEdit, ListView, TabWidget, Palette } from "std-widgets.slint";
 
 struct SongResult {
     title: string,
@@ -353,9 +353,23 @@ export component AppWindow inherits Window {
         height: 0px;
     }
 
-    TabWidget {
+    // Fill behind the system bars so their reserved strips show the app
+    // background, not a gap left by the inset tab UI below.
+    Rectangle {
         width: 100%;
         height: 100%;
+        background: Palette.background;
+    }
+
+    // Keep the tab UI clear of the status bar (top), nav bar (bottom) and notch.
+    // Unlike the viewer (which goes fullscreen), the tabs are an interactive
+    // browsing surface, so we reserve the bar space rather than draw behind it.
+    // Insets are 0 on desktop and where a bar autohides.
+    TabWidget {
+        x: root.safe-area-insets.left;
+        y: root.safe-area-insets.top;
+        width: root.width - root.safe-area-insets.left - root.safe-area-insets.right;
+        height: root.height - root.safe-area-insets.top - root.safe-area-insets.bottom;
         current-index <=> root.active-tab;
 
         Tab {
