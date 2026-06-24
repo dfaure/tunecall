@@ -40,7 +40,12 @@ fn try_set(enabled: bool) -> Result<(), Box<dyn std::error::Error>> {
     // FindClass on the native thread can't see app classes (it uses the system
     // class loader), so load Immersive through the activity's own class loader.
     let loader = env
-        .call_method(&activity, "getClassLoader", "()Ljava/lang/ClassLoader;", &[])?
+        .call_method(
+            &activity,
+            "getClassLoader",
+            "()Ljava/lang/ClassLoader;",
+            &[],
+        )?
         .l()?;
     let name: JObject = env.new_string("com.tunecall.app.Immersive")?.into();
     let class: JClass = env
