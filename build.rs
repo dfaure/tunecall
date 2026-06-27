@@ -26,7 +26,7 @@ fn main() {
     println!("cargo:rerun-if-changed=.git/HEAD");
     println!("cargo:rerun-if-changed=.git/refs/heads");
 
-    let config = slint_build::CompilerConfiguration::new().with_style("fluent-light".into());
+    let config = slint_build::CompilerConfiguration::new().with_style("material".into());
 
     // material-light: too big
     // fluent-light: clean, very square, blue highlight below the lineedit, blue selection

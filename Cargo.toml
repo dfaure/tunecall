@@ -1,6 +1,6 @@
 [package]
 name = "tunecall"
-version = "1.0.1"
+version = "1.0.2"
 edition = "2024"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -8,7 +8,7 @@ edition = "2024"
 [dependencies]
 # For desktop builds. For Android, the backend is switched by Cargo features
 # from the command line / Gradle (backend-android-activity-06), see README.md.
-slint = { version = "1.14", features = ["std", "compat-1-2", "backend-winit", "renderer-femtovg"] }
+slint = { version = "1.15.1", features = ["std", "compat-1-2", "backend-winit", "renderer-femtovg"] }
 flexi_logger = "0.31.2"
 log = "0.4.27"
 anyhow = "1.0.98"
@@ -42,7 +42,7 @@ serde_json = "1"
 jni = "0.21"
 
 [build-dependencies]
-slint-build = "1.14"
+slint-build = "1.15.1"
 
 [lib]
 # https://github.com/rust-lang/cargo/issues/12260#issuecomment-2225216175 says this might create trouble on Windows...
