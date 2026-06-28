@@ -424,7 +424,7 @@ export component AppWindow inherits Window {
     property <bool> edit-mode: false;
     property <bool> adding-text: false;
     property <bool> moving-annotations: false;
-    property <[AnnotationItem]> page-annotations;
+    in-out property <[AnnotationItem]> page-annotations;
     property <float> pending-ann-x;
     property <float> pending-ann-y;
     property <string> annotation-text;
