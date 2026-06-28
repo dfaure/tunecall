@@ -550,6 +550,20 @@ pub fn tunecall_main() -> Result<(), Box<dyn Error>> {
         }
     });
 
+    ui.on_delete_annotation({
+        let ui_handle = ui.as_weak();
+        let viewer = viewer.clone();
+        move |id| {
+            let ui = ui_handle.unwrap();
+            let slot = viewer.borrow();
+            let Some(state) = slot.as_ref() else { return };
+            if let Err(e) = annotations::delete(id as i64) {
+                log::warn!("deleting annotation failed: {e}");
+            }
+            load_and_set_annotations(&ui, state);
+        }
+    });
+
     // Reload = download the published indexes from the server, then reload from
     // disk. Runs on the Slint event loop (async-compat bridges reqwest's tokio),
     // so it can touch the Rc state directly without blocking the UI.

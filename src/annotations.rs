@@ -62,3 +62,9 @@ pub fn update_position(id: i64, x: f32, y: f32) -> Result<()> {
     )?;
     Ok(())
 }
+
+pub fn delete(id: i64) -> Result<()> {
+    let conn = open_db()?;
+    conn.execute("DELETE FROM annotations WHERE rowid = ?1", params![id])?;
+    Ok(())
+}

@@ -55,6 +55,10 @@ component IconButton inherits Rectangle {
     // When true, the button paints with the accent background so a toggled-on
     // mode (e.g. add-text / move-annotation) is visually obvious.
     in property <bool> checked: false;
+    // Defaults to the palette foreground (adapts to dark mode). Callers that
+    // sit on a fixed-color surface (e.g. an annotation over the white PDF page)
+    // can override this so the glyph stays readable.
+    in property <color> icon-color: Palette.foreground;
     callback clicked <=> ta.clicked;
 
     width: 44px;
@@ -76,8 +80,8 @@ component IconButton inherits Rectangle {
         viewbox-width: 24;
         viewbox-height: 24;
         commands: root.commands;
-        fill: root.filled ? black : transparent;
-        stroke: root.filled ? transparent : black;
+        fill: root.filled ? root.icon-color : transparent;
+        stroke: root.filled ? transparent : root.icon-color;
         stroke-width: 2.5px;
     }
 }
@@ -380,6 +384,7 @@ export component AppWindow inherits Window {
     property <bool> annotation-dialog-open: false;
     callback save-annotation(float, float, string);
     callback move-annotation(int, float, float); // rowid, new-x, new-y (normalized)
+    callback delete-annotation(int);             // rowid
     callback close-viewer();
     // Ask the platform to go fullscreen (hide the status/nav bars) while the
     // viewer is open and restore them when it closes. Android-only; a no-op
@@ -979,19 +984,14 @@ export component AppWindow inherits Window {
 
                         x: root.viewer-pan-x + ann.x * pageArea.width * root.viewer-zoom + self.drag-dx;
                         y: root.viewer-pan-y + ann.y * pageArea.height * root.viewer-zoom + self.drag-dy;
-                        width: ann-label.preferred-width + 8px;
-                        height: ann-label.preferred-height + 4px;
+                        width: ann-row.preferred-width + 8px;
+                        height: ann-row.preferred-height + 4px;
                         border-radius: root.moving-annotations ? 3px : 0px;
                         border-width: root.moving-annotations ? 1px : 0px;
                         border-color: #0d47a1;
 
-                        ann-label := Text {
-                            text: ann.text;
-                            color: #0d47a1;
-                            font-size: 18px;
-                            font-weight: 700;
-                        }
-
+                        // Drag area declared first so the delete button (in ann-row,
+                        // declared after) is painted on top and captures its own clicks.
                         ann-drag := TouchArea {
                             enabled: root.moving-annotations;
                             mouse-cursor: root.moving-annotations ? MouseCursor.move : MouseCursor.default;
@@ -1016,6 +1016,35 @@ export component AppWindow inherits Window {
                                     }
                                     parent.drag-dx = 0px;
                                     parent.drag-dy = 0px;
+                                }
+                            }
+                        }
+
+                        ann-row := HorizontalLayout {
+                            padding-left: 4px;
+                            padding-right: 4px;
+                            spacing: 4px;
+                            ann-label := Text {
+                                text: ann.text;
+                                color: #0d47a1;
+                                font-size: 18px;
+                                font-weight: 700;
+                                vertical-alignment: center;
+                            }
+                            // Wrap so the layout slot stretches to ann-row's
+                            // height (the label is taller than the button) and
+                            // the fixed-size IconButton is centered inside it.
+                            if root.moving-annotations : Rectangle {
+                                width: 20px;
+                                IconButton {
+                                    width: 20px;
+                                    height: 20px;
+                                    x: 0;
+                                    y: (parent.height - self.height) / 2;
+                                    commands: "M 7 7 L 17 17 M 7 17 L 17 7";
+                                    filled: false;
+                                    icon-color: #0d47a1;
+                                    clicked => { root.delete-annotation(ann.id); }
                                 }
                             }
                         }
