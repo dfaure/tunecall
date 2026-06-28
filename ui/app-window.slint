@@ -65,8 +65,8 @@ component IconButton inherits Rectangle {
     height: 36px;
     border-radius: 4px;
     border-width: 1px;
-    border-color: #00000022;
-    background: root.checked ? Palette.accent-background : !root.enabled ? #00000008 : ta.pressed ? #00000026 : ta.has-hover ? #00000014 : #0000000a;
+    border-color: Palette.foreground.with-alpha(0.13);
+    background: root.checked ? Palette.accent-background : !root.enabled ? Palette.foreground.with-alpha(0.03) : ta.pressed ? Palette.foreground.with-alpha(0.15) : ta.has-hover ? Palette.foreground.with-alpha(0.08) : Palette.foreground.with-alpha(0.04);
     opacity: root.enabled ? 1.0 : 0.35;
 
     ta := TouchArea {
@@ -83,6 +83,52 @@ component IconButton inherits Rectangle {
         fill: root.filled ? root.icon-color : transparent;
         stroke: root.filled ? transparent : root.icon-color;
         stroke-width: 2.5px;
+    }
+}
+
+// A row in a dropdown menu: checkmark on the left (visible when checked), text,
+// hover highlight. Touchable — fires `clicked` regardless of checked state so
+// the caller decides the toggle logic.
+component MenuItem inherits Rectangle {
+    in property <string> text;
+    in property <bool> checked: false;
+    callback clicked();
+
+    height: 48px;
+    border-radius: 4px;
+    background: ta.has-hover ? #0000000e : transparent;
+
+    ta := TouchArea {
+        clicked => { root.clicked(); }
+    }
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 12px;
+        spacing: 10px;
+        // Wrap the Path so the layout assigns it a row-height column;
+        // we then center the fixed-size glyph vertically within it.
+        Rectangle {
+            width: 20px;
+            Path {
+                width: 20px;
+                height: 20px;
+                x: 0;
+                y: (parent.height - self.height) / 2;
+                viewbox-width: 24;
+                viewbox-height: 24;
+                commands: "M 5 13 L 10 18 L 19 7";
+                fill: transparent;
+                stroke: Palette.foreground;
+                stroke-width: 2.5px;
+                opacity: root.checked ? 1.0 : 0.0;
+            }
+        }
+        Text {
+            text: root.text;
+            vertical-alignment: center;
+            horizontal-stretch: 1;
+            font-size: 16px;
+        }
     }
 }
 
@@ -103,7 +149,7 @@ component MessageBox inherits Rectangle {
     Rectangle {
         width: min(parent.width - 48px, 360px);
         height: card.preferred-height;
-        background: white;
+        background: Palette.background;
         border-radius: 8px;
         // Swallow taps on the card so they don't reach the scrim and dismiss.
         TouchArea { }
@@ -320,6 +366,7 @@ export component AppWindow inherits Window {
     // find the file (over USB) without parking the path on the Books screen.
     in property <string> log-dir;
     property <bool> show-log-info;
+    property <bool> menu-open: false;
 
     // --- setlists ---
     in property <[SetlistEntry]> setlists;
@@ -688,36 +735,6 @@ export component AppWindow inherits Window {
                     }
                 }
 
-                // Opt-in debug logging. Off by default; a log file is written
-                // only when the user turns this on (and only after a restart).
-                HorizontalLayout {
-                    spacing: 8px;
-                    Text {
-                        text: "Save debug log to file";
-                        vertical-alignment: center;
-                        horizontal-stretch: 1;
-                        wrap: word-wrap;
-                    }
-                    Switch {
-                        checked: root.file-logging;
-                        toggled => {
-                            root.file-logging = self.checked;
-                            root.set-file-logging(self.checked);
-                            // Tell the user where the file lands when they turn
-                            // it on; no need to nag on the way off.
-                            if self.checked {
-                                root.show-log-info = true;
-                            }
-                        }
-                    }
-                }
-                Text {
-                    text: "For bug reports. Takes effect after restarting the app.";
-                    color: gray;
-                    font-size: 14px;
-                    wrap: word-wrap;
-                }
-
                 // App name / version / build, parked at the bottom so it's
                 // available for bug reports without being intrusive.
                 Text {
@@ -725,6 +742,55 @@ export component AppWindow inherits Window {
                     color: gray;
                     font-size: 14px;
                     horizontal-alignment: center;
+                }
+            }
+        }
+    }
+
+    // Hamburger / settings button — floats in the tab-bar's top-right corner.
+    // Declared after the TabWidget so it draws on top; declared before the viewer
+    // overlay so the viewer covers it when a song is open.
+    IconButton {
+        x: root.width - root.safe-area-insets.right - self.width - 4px;
+        y: root.safe-area-insets.top + 2px;
+        commands: "M 3 7 L 21 7 M 3 12 L 21 12 M 3 17 L 21 17";
+        filled: false;
+        clicked => { root.menu-open = !root.menu-open; }
+    }
+
+    // Settings dropdown menu.
+    if root.menu-open : Rectangle {
+        width: root.width;
+        height: root.height;
+        background: transparent;
+        // Scrim: tap outside the panel to close.
+        TouchArea {
+            clicked => { root.menu-open = false; }
+        }
+        // Panel — declared after the scrim so it draws on top.
+        Rectangle {
+            x: root.width - root.safe-area-insets.right - self.width - 4px;
+            y: root.safe-area-insets.top + 42px;
+            width: min(260px, root.width - 16px);
+            height: menu-vl.preferred-height;
+            border-radius: 8px;
+            background: Palette.background;
+            drop-shadow-blur: 12px;
+            drop-shadow-color: #00000030;
+            border-width: 1px;
+            border-color: #0000001a;
+            // Swallow touches on the panel background so they don't reach the scrim.
+            TouchArea { }
+            menu-vl := VerticalLayout {
+                padding: 4px;
+                MenuItem {
+                    text: "Debug logging";
+                    checked: root.file-logging;
+                    clicked => {
+                        root.file-logging = !root.file-logging;
+                        root.set-file-logging(root.file-logging);
+                        if (root.file-logging) { root.show-log-info = true; }
+                    }
                 }
             }
         }
@@ -1184,9 +1250,8 @@ export component AppWindow inherits Window {
         }
     }
 
-    // One-time info shown when debug logging is switched on: tells the user where
-    // the log file lands and that it's reachable over USB (same folder they
-    // copied the PDFs into). Keeps the path out of the always-visible Books UI.
+    // One-time info shown when debug logging is switched on from the settings menu:
+    // tells the user where the log file lands and that it's reachable over USB.
     if root.show-log-info : MessageBox {
         dismissed => { root.show-log-info = false; }
         Text {
