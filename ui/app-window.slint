@@ -23,6 +23,7 @@ struct SetlistSongEntry {
 }
 
 struct AnnotationItem {
+    id: int,  // DB rowid, used to update position
     x: float, // normalized 0.0–1.0 within the page image
     y: float,
     text: string,
@@ -51,6 +52,9 @@ component IconButton inherits Rectangle {
     in property <string> commands;
     in property <bool> filled: true;
     in property <bool> enabled: true;
+    // When true, the button paints with the accent background so a toggled-on
+    // mode (e.g. add-text / move-annotation) is visually obvious.
+    in property <bool> checked: false;
     callback clicked <=> ta.clicked;
 
     width: 44px;
@@ -58,7 +62,7 @@ component IconButton inherits Rectangle {
     border-radius: 4px;
     border-width: 1px;
     border-color: #00000022;
-    background: !root.enabled ? #00000008 : ta.pressed ? #00000026 : ta.has-hover ? #00000014 : #0000000a;
+    background: root.checked ? Palette.accent-background : !root.enabled ? #00000008 : ta.pressed ? #00000026 : ta.has-hover ? #00000014 : #0000000a;
     opacity: root.enabled ? 1.0 : 0.35;
 
     ta := TouchArea {
@@ -368,12 +372,14 @@ export component AppWindow inherits Window {
     callback next-result();
     property <bool> edit-mode: false;
     property <bool> adding-text: false;
+    property <bool> moving-annotations: false;
     property <[AnnotationItem]> page-annotations;
     property <float> pending-ann-x;
     property <float> pending-ann-y;
     property <string> annotation-text;
     property <bool> annotation-dialog-open: false;
     callback save-annotation(float, float, string);
+    callback move-annotation(int, float, float); // rowid, new-x, new-y (normalized)
     callback close-viewer();
     // Ask the platform to go fullscreen (hide the status/nav bars) while the
     // viewer is open and restore them when it closes. Android-only; a no-op
@@ -754,17 +760,30 @@ export component AppWindow inherits Window {
                     horizontal-alignment: center;
                     horizontal-stretch: 1;
                 }
-                Button {
-                    text: "T";
-                    visible: root.edit-mode;
+                if root.edit-mode : IconButton {
+                    // "T" — insert text annotation
+                    commands: "M 5 5 L 5 8 L 10.5 8 L 10.5 19 L 13.5 19 L 13.5 8 L 19 8 L 19 5 Z";
+                    checked: root.adding-text;
                     clicked => {
-                        root.adding-text = true;
+                        root.adding-text = !root.adding-text;
+                        root.moving-annotations = false;
+                    }
+                }
+                if root.edit-mode : IconButton {
+                    // Four-directional move arrow
+                    commands: "M 12 2 L 9 5 L 11 5 L 11 11 L 5 11 L 5 9 L 2 12 L 5 15 L 5 13 L 11 13 L 11 19 L 9 19 L 12 22 L 15 19 L 13 19 L 13 13 L 19 13 L 19 15 L 22 12 L 19 9 L 19 11 L 13 11 L 13 5 L 15 5 Z";
+                    checked: root.moving-annotations;
+                    clicked => {
+                        root.moving-annotations = !root.moving-annotations;
+                        root.adding-text = false;
                     }
                 }
                 Button {
-                    text: "Edit";
+                    text: root.edit-mode ? "Done" : "Edit";
                     clicked => {
                         root.edit-mode = !root.edit-mode;
+                        root.adding-text = false;
+                        root.moving-annotations = false;
                     }
                 }
                 Button {
@@ -785,6 +804,7 @@ export component AppWindow inherits Window {
                     clicked => {
                         root.edit-mode = false;
                         root.adding-text = false;
+                        root.moving-annotations = false;
                         root.close-viewer();
                     }
                 }
@@ -880,15 +900,6 @@ export component AppWindow inherits Window {
                         height: parent.height * root.viewer-zoom;
                     }
 
-                    for ann in root.page-annotations : Text {
-                        x: root.viewer-pan-x + ann.x * pageArea.width * root.viewer-zoom;
-                        y: root.viewer-pan-y + ann.y * pageArea.height * root.viewer-zoom;
-                        text: ann.text;
-                        color: #0d47a1;
-                        font-size: 18px;
-                        font-weight: 700;
-                    }
-
                     // One surface for all single-pointer interaction: drag to
                     // pan while zoomed in, tap the left/right 20% to flip pages
                     // (at any zoom — a margin crop must not block page turns),
@@ -957,6 +968,56 @@ export component AppWindow inherits Window {
                                 return accept;
                             }
                             reject
+                        }
+                    }
+
+                    // Annotation overlay — after panArea so these touch areas
+                    // sit on top and capture drags in move mode.
+                    for ann in root.page-annotations : Rectangle {
+                        property <length> drag-dx: 0px;
+                        property <length> drag-dy: 0px;
+
+                        x: root.viewer-pan-x + ann.x * pageArea.width * root.viewer-zoom + self.drag-dx;
+                        y: root.viewer-pan-y + ann.y * pageArea.height * root.viewer-zoom + self.drag-dy;
+                        width: ann-label.preferred-width + 8px;
+                        height: ann-label.preferred-height + 4px;
+                        border-radius: root.moving-annotations ? 3px : 0px;
+                        border-width: root.moving-annotations ? 1px : 0px;
+                        border-color: #0d47a1;
+
+                        ann-label := Text {
+                            text: ann.text;
+                            color: #0d47a1;
+                            font-size: 18px;
+                            font-weight: 700;
+                        }
+
+                        ann-drag := TouchArea {
+                            enabled: root.moving-annotations;
+                            mouse-cursor: root.moving-annotations ? MouseCursor.move : MouseCursor.default;
+                            // The parent Rectangle moves as drag-{dx,dy} change,
+                            // so this TouchArea moves with it. After the parent
+                            // shifts, mouse-x is in the new local frame while
+                            // pressed-x is still in the press-time frame —
+                            // (mouse-x - pressed-x) is the delta since the last
+                            // `moved`, not since press. Accumulate to get the
+                            // total drag.
+                            moved => {
+                                parent.drag-dx += self.mouse-x - self.pressed-x;
+                                parent.drag-dy += self.mouse-y - self.pressed-y;
+                            }
+                            changed pressed => {
+                                if (!self.pressed) {
+                                    if (Math.abs(parent.drag-dx / 1px) > 4 || Math.abs(parent.drag-dy / 1px) > 4) {
+                                        root.move-annotation(
+                                            ann.id,
+                                            ann.x + parent.drag-dx / 1px / (pageArea.width * root.viewer-zoom / 1px),
+                                            ann.y + parent.drag-dy / 1px / (pageArea.height * root.viewer-zoom / 1px));
+                                    }
+                                    parent.drag-dx = 0px;
+                                    parent.drag-dy = 0px;
+                                }
+                            }
                         }
                     }
                 }

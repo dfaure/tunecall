@@ -153,6 +153,7 @@ fn load_and_set_annotations(ui: &AppWindow, state: &ViewerState) {
     let items: Vec<AnnotationItem> = annotations::load(&stem, state.page)
         .into_iter()
         .map(|a| AnnotationItem {
+            id: a.id as i32,
             x: a.x,
             y: a.y,
             text: a.text.into(),
@@ -530,6 +531,20 @@ pub fn tunecall_main() -> Result<(), Box<dyn Error>> {
             let stem = book_stem_from_path(&state.path);
             if let Err(e) = annotations::save(&stem, state.page, x, y, &text) {
                 log::warn!("saving annotation failed: {e}");
+            }
+            load_and_set_annotations(&ui, state);
+        }
+    });
+
+    ui.on_move_annotation({
+        let ui_handle = ui.as_weak();
+        let viewer = viewer.clone();
+        move |id, x, y| {
+            let ui = ui_handle.unwrap();
+            let slot = viewer.borrow();
+            let Some(state) = slot.as_ref() else { return };
+            if let Err(e) = annotations::update_position(id as i64, x, y) {
+                log::warn!("moving annotation failed: {e}");
             }
             load_and_set_annotations(&ui, state);
         }
