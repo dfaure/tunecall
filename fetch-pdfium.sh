@@ -14,7 +14,7 @@ set -euo pipefail
 
 # Pinned release. To update, bump this and confirm pdfium-render's `pdfium_latest`
 # feature still matches. Releases: https://github.com/bblanchon/pdfium-binaries/releases
-VERSION="chromium/7869"
+VERSION="chromium/7906"
 BASE="https://github.com/bblanchon/pdfium-binaries/releases/download/${VERSION}"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

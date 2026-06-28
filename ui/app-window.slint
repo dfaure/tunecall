@@ -22,6 +22,12 @@ struct SetlistSongEntry {
     available: bool, // matching PDF installed (else greyed, opens to a render error)
 }
 
+struct AnnotationItem {
+    x: float, // normalized 0.0–1.0 within the page image
+    y: float,
+    text: string,
+}
+
 // Hairline dividers. HSeparator is a horizontal line (full width, 1px tall) for
 // separating stacked rows; VSeparator is a vertical line (1px wide, full height)
 // for separating side-by-side columns. Each leaves the other dimension to fill,
@@ -360,6 +366,14 @@ export component AppWindow inherits Window {
     callback next-page();
     callback prev-result(); // across the nav list (search results or a setlist)
     callback next-result();
+    property <bool> edit-mode: false;
+    property <bool> adding-text: false;
+    property <[AnnotationItem]> page-annotations;
+    property <float> pending-ann-x;
+    property <float> pending-ann-y;
+    property <string> annotation-text;
+    property <bool> annotation-dialog-open: false;
+    callback save-annotation(float, float, string);
     callback close-viewer();
     // Ask the platform to go fullscreen (hide the status/nav bars) while the
     // viewer is open and restore them when it closes. Android-only; a no-op
@@ -710,7 +724,7 @@ export component AppWindow inherits Window {
     if root.viewer-visible : Rectangle {
         width: root.width;
         height: root.height;
-        background: white;
+        background: Palette.background;
 
         VerticalLayout {
             // Keep the content (toolbar, page badge) clear of the system bars.
@@ -741,6 +755,19 @@ export component AppWindow inherits Window {
                     horizontal-stretch: 1;
                 }
                 Button {
+                    text: "T";
+                    visible: root.edit-mode;
+                    clicked => {
+                        root.adding-text = true;
+                    }
+                }
+                Button {
+                    text: "Edit";
+                    clicked => {
+                        root.edit-mode = !root.edit-mode;
+                    }
+                }
+                Button {
                     text: "Next ›";
                     enabled: root.result-index < root.result-count - 1;
                     clicked => { root.next-result(); }
@@ -753,7 +780,13 @@ export component AppWindow inherits Window {
                 }
                 Button {
                     text: "Close";
-                    clicked => { root.close-viewer(); }
+                    // Reset edit state too — next song open shouldn't inherit
+                    // a stale toolbar mode from this one.
+                    clicked => {
+                        root.edit-mode = false;
+                        root.adding-text = false;
+                        root.close-viewer();
+                    }
                 }
             }
 
@@ -847,6 +880,15 @@ export component AppWindow inherits Window {
                         height: parent.height * root.viewer-zoom;
                     }
 
+                    for ann in root.page-annotations : Text {
+                        x: root.viewer-pan-x + ann.x * pageArea.width * root.viewer-zoom;
+                        y: root.viewer-pan-y + ann.y * pageArea.height * root.viewer-zoom;
+                        text: ann.text;
+                        color: #0d47a1;
+                        font-size: 18px;
+                        font-weight: 700;
+                    }
+
                     // One surface for all single-pointer interaction: drag to
                     // pan while zoomed in, tap the left/right 20% to flip pages
                     // (at any zoom — a margin crop must not block page turns),
@@ -876,7 +918,13 @@ export component AppWindow inherits Window {
                         }
                         clicked => {
                             if (self.is-tap()) {
-                                if (self.pressed-x < self.width * 20% && root.page-number > 1) {
+                                if (root.adding-text) {
+                                    root.pending-ann-x = (self.pressed-x - root.viewer-pan-x) / 1px / (pageArea.width * root.viewer-zoom / 1px);
+                                    root.pending-ann-y = (self.pressed-y - root.viewer-pan-y) / 1px / (pageArea.height * root.viewer-zoom / 1px);
+                                    root.annotation-text = "";
+                                    root.annotation-dialog-open = true;
+                                    root.adding-text = false;
+                                } else if (self.pressed-x < self.width * 20% && root.page-number > 1) {
                                     root.prev-page();
                                 } else if (self.pressed-x > self.width * 80% && root.page-number < root.page-count) {
                                     root.next-page();
@@ -940,6 +988,76 @@ export component AppWindow inherits Window {
                             color: white;
                             font-size: 16px;
                             vertical-alignment: center;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Annotation text-entry dialog: shown when the user taps in add-text mode.
+    // Appears on top of the viewer; OK fires save-annotation with the typed text.
+    if root.annotation-dialog-open : Rectangle {
+        // Focus the input as soon as the dialog appears — the user just tapped
+        // a page location to summon it, and is about to type.
+        init => { ann-input.focus(); }
+        width: root.width;
+        height: root.height;
+        background: #00000060;
+        TouchArea {
+            clicked => { root.annotation-dialog-open = false; }
+        }
+        Rectangle {
+            width: min(320px, root.width - 32px);
+            height: card.preferred-height;
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            background: Palette.background;
+            border-radius: 8px;
+            drop-shadow-blur: 12px;
+            drop-shadow-color: #00000040;
+            // Swallow taps on the dialog so they don't dismiss via the scrim.
+            TouchArea { }
+            card := VerticalLayout {
+                padding: 14px;
+                spacing: 10px;
+                Text {
+                    text: "Add note";
+                    font-size: 16px;
+                    font-weight: 700;
+                    color: Palette.foreground;
+                }
+                ann-input := LineEdit {
+                    text <=> root.annotation-text;
+                    font-size: 16px;
+                    accepted => {
+                        if (root.annotation-text != "") {
+                            root.save-annotation(root.pending-ann-x, root.pending-ann-y, root.annotation-text);
+                        }
+                        root.annotation-dialog-open = false;
+                        root.annotation-text = "";
+                    }
+                }
+                HorizontalLayout {
+                    spacing: 8px;
+                    Button {
+                        text: "Cancel";
+                        horizontal-stretch: 1;
+                        clicked => {
+                            root.annotation-dialog-open = false;
+                            root.annotation-text = "";
+                        }
+                    }
+                    Button {
+                        text: "OK";
+                        primary: true;
+                        horizontal-stretch: 1;
+                        clicked => {
+                            if (root.annotation-text != "") {
+                                root.save-annotation(root.pending-ann-x, root.pending-ann-y, root.annotation-text);
+                            }
+                            root.annotation-dialog-open = false;
+                            root.annotation-text = "";
                         }
                     }
                 }

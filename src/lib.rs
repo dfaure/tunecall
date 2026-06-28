@@ -8,6 +8,7 @@ use std::rc::Rc;
 
 use slint::{Image, VecModel};
 
+mod annotations;
 mod db;
 #[cfg(target_os = "android")]
 mod immersive;
@@ -139,6 +140,27 @@ fn set_idle_status(ui: &AppWindow, library: &Rc<RefCell<Vec<Song>>>) {
     }
 }
 
+fn book_stem_from_path(path: &str) -> String {
+    std::path::Path::new(path)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("")
+        .to_string()
+}
+
+fn load_and_set_annotations(ui: &AppWindow, state: &ViewerState) {
+    let stem = book_stem_from_path(&state.path);
+    let items: Vec<AnnotationItem> = annotations::load(&stem, state.page)
+        .into_iter()
+        .map(|a| AnnotationItem {
+            x: a.x,
+            y: a.y,
+            text: a.text.into(),
+        })
+        .collect();
+    ui.set_page_annotations(Rc::new(VecModel::from(items)).into());
+}
+
 /// Render the page described by `state` into the viewer, at the width it was
 /// last rasterized at — so flipping pages while zoomed in (e.g. to crop the
 /// margins) keeps both the zoom and its sharpness.
@@ -146,6 +168,7 @@ fn show_page(ui: &AppWindow, state: &ViewerState) {
     ui.set_viewer_error("".into());
     ui.set_page_number(state.page as i32 + 1);
     ui.set_page_count(state.count as i32);
+    load_and_set_annotations(ui, state);
     match pdf::render_page(&state.path, state.page, state.render_width) {
         Ok(img) => ui.set_page_image(img),
         Err(e) => {
@@ -494,6 +517,21 @@ pub fn tunecall_main() -> Result<(), Box<dyn Error>> {
             if let Some(idx) = prev {
                 open_result_at(&ui, &nav, &viewer, &book_titles, idx);
             }
+        }
+    });
+
+    ui.on_save_annotation({
+        let ui_handle = ui.as_weak();
+        let viewer = viewer.clone();
+        move |x, y, text| {
+            let ui = ui_handle.unwrap();
+            let slot = viewer.borrow();
+            let Some(state) = slot.as_ref() else { return };
+            let stem = book_stem_from_path(&state.path);
+            if let Err(e) = annotations::save(&stem, state.page, x, y, &text) {
+                log::warn!("saving annotation failed: {e}");
+            }
+            load_and_set_annotations(&ui, state);
         }
     });
 
@@ -880,6 +918,7 @@ pub fn tunecall_main() -> Result<(), Box<dyn Error>> {
             let ui = ui_handle.unwrap();
             ui.set_viewer_visible(false);
             ui.set_page_image(Image::default());
+            ui.set_page_annotations(Rc::new(VecModel::<AnnotationItem>::default()).into());
             *viewer.borrow_mut() = None;
         }
     });
