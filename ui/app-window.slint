@@ -536,12 +536,15 @@ export component AppWindow inherits Window {
                             placeholder-text: "New setlist name";
                             horizontal-stretch: 1;
                         }
-                        Button {
-                            text: "Create";
-                            enabled: newName.text != "";
-                            clicked => {
-                                root.create-setlist(newName.text);
-                                newName.text = "";
+                        VerticalLayout {
+                            alignment: center;
+                            Button {
+                                text: "Create";
+                                enabled: newName.text != "";
+                                clicked => {
+                                    root.create-setlist(newName.text);
+                                    newName.text = "";
+                                }
                             }
                         }
                     }
@@ -574,15 +577,21 @@ export component AppWindow inherits Window {
                                     font-size: 16px;
                                 }
                             }
-                            Button {
-                                text: "Edit";
-                                clicked => { root.edit-setlist(idx); }
+                            VerticalLayout {
+                                alignment: center;
+                                Button {
+                                    text: "Edit";
+                                    clicked => { root.edit-setlist(idx); }
+                                }
                             }
-                            Button {
-                                text: "Delete";
-                                clicked => {
-                                    root.confirm-delete-name = s.name;
-                                    root.confirm-delete-index = idx;
+                            VerticalLayout {
+                                alignment: center;
+                                Button {
+                                    text: "Delete";
+                                    clicked => {
+                                        root.confirm-delete-name = s.name;
+                                        root.confirm-delete-index = idx;
+                                    }
                                 }
                             }
                         }
