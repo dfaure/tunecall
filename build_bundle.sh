@@ -6,4 +6,3 @@ aarch64-linux-android-strip -s ./app/src/main/jniLibs/arm64-v8a/libtunecall.so
 ./gradlew bundleRelease
 cp app/build/outputs/bundle/release/*.aab /sdcard/Download/
 ls -l /sdcard/Download/*.aab
-echo "Open Firefox and create a release there"
