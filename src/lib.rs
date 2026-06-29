@@ -164,13 +164,15 @@ fn load_and_set_annotations(ui: &AppWindow, state: &ViewerState) {
 
 /// Render the page described by `state` into the viewer, at the width it was
 /// last rasterized at — so flipping pages while zoomed in (e.g. to crop the
-/// margins) keeps both the zoom and its sharpness.
+/// margins) keeps both the zoom and its sharpness. The inverted-colors setting
+/// is read from the UI so any toggle from the menu is picked up automatically.
 fn show_page(ui: &AppWindow, state: &ViewerState) {
     ui.set_viewer_error("".into());
     ui.set_page_number(state.page as i32 + 1);
     ui.set_page_count(state.count as i32);
     load_and_set_annotations(ui, state);
-    match pdf::render_page(&state.path, state.page, state.render_width) {
+    let inverted = ui.get_viewer_inverted();
+    match pdf::render_page(&state.path, state.page, state.render_width, inverted) {
         Ok(img) => ui.set_page_image(img),
         Err(e) => {
             log::warn!("render_page failed: {e}");
@@ -413,18 +415,37 @@ pub fn tunecall_main() -> Result<(), Box<dyn Error>> {
         .into(),
     );
 
-    // Debug-log toggle (Books tab). Reflect the saved state, and persist any
-    // change. The Android logger only reads this at startup, so the change takes
-    // effect on the next launch (the UI says so).
-    ui.set_file_logging(settings::load().file_logging);
+    // Settings reflected into the UI on startup. The Android logger only reads
+    // `file_logging` at startup, so a change there takes effect on the next
+    // launch (the UI says so). The viewer-inverted toggle is live: changing it
+    // re-renders the page that's open.
+    let saved = settings::load();
+    ui.set_file_logging(saved.file_logging);
+    ui.set_viewer_inverted(saved.viewer_inverted);
     // Folder the log lands in (data-dir root), shown in the "logging on" dialog
     // so the user can find it over USB.
     ui.set_log_dir(storage::data_dir().display().to_string().into());
     ui.on_set_file_logging(|enabled| {
-        if let Err(e) = settings::save(&settings::Settings {
-            file_logging: enabled,
-        }) {
+        let mut s = settings::load();
+        s.file_logging = enabled;
+        if let Err(e) = settings::save(&s) {
             log::warn!("saving settings failed: {e}");
+        }
+    });
+    ui.on_set_viewer_inverted({
+        let ui_handle = ui.as_weak();
+        let viewer = viewer.clone();
+        move |enabled| {
+            let mut s = settings::load();
+            s.viewer_inverted = enabled;
+            if let Err(e) = settings::save(&s) {
+                log::warn!("saving settings failed: {e}");
+            }
+            // Re-render the current page so the inversion takes effect at once.
+            let ui = ui_handle.unwrap();
+            if let Some(state) = viewer.borrow().as_ref() {
+                show_page(&ui, state);
+            }
         }
     });
 
@@ -651,7 +672,8 @@ pub fn tunecall_main() -> Result<(), Box<dyn Error>> {
             if width == state.render_width {
                 return;
             }
-            match pdf::render_page(&state.path, state.page, width) {
+            let inverted = ui.get_viewer_inverted();
+            match pdf::render_page(&state.path, state.page, width, inverted) {
                 Ok(img) => {
                     ui.set_page_image(img);
                     state.render_width = width;

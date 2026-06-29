@@ -388,6 +388,11 @@ export component AppWindow inherits Window {
     in property <string> log-dir;
     property <bool> show-log-info;
     property <bool> menu-open: false;
+    // Reverse-color (white-on-black) rendering of the PDF page. Only affects
+    // the viewer's page image; the rest of the app follows the system theme.
+    // Persisted by Rust on toggle; reflected here at startup.
+    in-out property <bool> viewer-inverted: false;
+    callback set-viewer-inverted(bool);
 
     // --- setlists ---
     in property <[SetlistEntry]> setlists;
@@ -453,6 +458,9 @@ export component AppWindow inherits Window {
     callback save-annotation(float, float, string);
     callback move-annotation(int, float, float); // rowid, new-x, new-y (normalized)
     callback delete-annotation(int);             // rowid
+    // Top-row visibility inside the viewer. A center tap toggles it (along with
+    // the bottom page badge) so the page fills the screen while playing.
+    property <bool> toolbar-shown: true;
     callback close-viewer();
     // Ask the platform to go fullscreen (hide the status/nav bars) while the
     // viewer is open and restore them when it closes. Android-only; a no-op
@@ -466,6 +474,10 @@ export component AppWindow inherits Window {
     changed viewer-visible => {
         root.set-immersive(root.viewer-visible);
         if (root.viewer-visible) {
+            // A freshly opened viewer always starts with chrome visible — the
+            // hide is an explicit center tap, and shouldn't carry over from the
+            // previous viewing session.
+            root.toolbar-shown = true;
             searchField.clear-focus();
         } else if (root.active-tab == 0) {
             searchField.focus();
@@ -816,44 +828,6 @@ export component AppWindow inherits Window {
         clicked => { root.menu-open = !root.menu-open; }
     }
 
-    // Settings dropdown menu.
-    if root.menu-open : Rectangle {
-        width: root.width;
-        height: root.height;
-        background: transparent;
-        // Scrim: tap outside the panel to close.
-        TouchArea {
-            clicked => { root.menu-open = false; }
-        }
-        // Panel — declared after the scrim so it draws on top.
-        Rectangle {
-            x: root.width - root.safe-area-insets.right - self.width - 4px;
-            y: root.safe-area-insets.top + 42px;
-            width: min(260px, root.width - 16px);
-            height: menu-vl.preferred-height;
-            border-radius: 8px;
-            background: MaterialPalette.background;
-            drop-shadow-blur: 12px;
-            drop-shadow-color: #00000030;
-            border-width: 1px;
-            border-color: #0000001a;
-            // Swallow touches on the panel background so they don't reach the scrim.
-            TouchArea { }
-            menu-vl := VerticalLayout {
-                padding: 4px;
-                MenuItem {
-                    text: "Debug logging";
-                    checked: root.file-logging;
-                    clicked => {
-                        root.file-logging = !root.file-logging;
-                        root.set-file-logging(root.file-logging);
-                        if (root.file-logging) { root.show-log-info = true; }
-                    }
-                }
-            }
-        }
-    }
-
     // Viewer overlay (covers the whole window, tab bar included, when a song is
     // open). A later sibling than the tab UI, so it draws on top.
     if root.viewer-visible : Rectangle {
@@ -876,7 +850,9 @@ export component AppWindow inherits Window {
 
             // Top bar navigates the nav list (the search hits for a song, or the
             // songs of a setlist), so you can step through without going back.
-            HorizontalLayout {
+            // Hidden by a center tap on the page for distraction-free playing;
+            // tap the center again to bring it back.
+            if root.toolbar-shown : HorizontalLayout {
                 spacing: 8px;
                 TonalButton {
                     text: "‹ Prev";
@@ -935,6 +911,14 @@ export component AppWindow inherits Window {
                         root.moving-annotations = false;
                         root.close-viewer();
                     }
+                }
+                // Same burger glyph as the tab-bar's settings button, opens the
+                // same dropdown. The tab-bar button is hidden behind the viewer
+                // overlay, so the viewer carries its own.
+                IconButton {
+                    commands: "M 3 7 L 21 7 M 3 12 L 21 12 M 3 17 L 21 17";
+                    filled: false;
+                    clicked => { root.menu-open = !root.menu-open; }
                 }
             }
 
@@ -1068,10 +1052,13 @@ export component AppWindow inherits Window {
                                 } else if (self.pressed-x > self.width * 80% && root.page-number < root.page-count) {
                                     root.next-page();
                                 } else if (self.pressed-x >= self.width * 20% && self.pressed-x <= self.width * 80%) {
-                                    // Center tap: toggle the badge at once (the fade
-                                    // is hide-only, so showing is instant) and stop
-                                    // the auto-hide so the choice sticks.
-                                    pageArea.badge-shown = !pageArea.badge-shown;
+                                    // Center tap: toggle the top toolbar and the
+                                    // bottom badge together. Hiding both clears the
+                                    // chrome for distraction-free reading; tap again
+                                    // to restore. The auto-hide timer is stopped so
+                                    // the explicit choice sticks.
+                                    root.toolbar-shown = !root.toolbar-shown;
+                                    pageArea.badge-shown = root.toolbar-shown;
                                     badgeHideTimer.running = false;
                                 }
                             }
@@ -1323,6 +1310,57 @@ export component AppWindow inherits Window {
         FilledButton {
             text: "OK";
             clicked => { root.show-log-info = false; }
+        }
+    }
+
+    // Settings dropdown menu. Declared last so it draws on top of everything —
+    // including the viewer overlay — since the viewer has its own burger button
+    // that triggers this same menu.
+    if root.menu-open : Rectangle {
+        width: root.width;
+        height: root.height;
+        background: transparent;
+        // Scrim: tap outside the panel to close.
+        TouchArea {
+            clicked => { root.menu-open = false; }
+        }
+        // Panel — declared after the scrim so it draws on top.
+        Rectangle {
+            x: root.width - root.safe-area-insets.right - self.width - 4px;
+            y: root.safe-area-insets.top + 42px;
+            width: min(260px, root.width - 16px);
+            height: menu-vl.preferred-height;
+            border-radius: 8px;
+            background: MaterialPalette.background;
+            drop-shadow-blur: 12px;
+            drop-shadow-color: #00000030;
+            border-width: 1px;
+            border-color: #0000001a;
+            // Swallow touches on the panel background so they don't reach the scrim.
+            TouchArea { }
+            menu-vl := VerticalLayout {
+                padding: 4px;
+                MenuItem {
+                    // Suffix makes it clear this only flips the PDF page, not
+                    // the whole app (which follows the system theme).
+                    text: "Invert PDF colors (viewer)";
+                    checked: root.viewer-inverted;
+                    clicked => {
+                        root.viewer-inverted = !root.viewer-inverted;
+                        root.set-viewer-inverted(root.viewer-inverted);
+                        root.menu-open = false;
+                    }
+                }
+                MenuItem {
+                    text: "Debug logging";
+                    checked: root.file-logging;
+                    clicked => {
+                        root.file-logging = !root.file-logging;
+                        root.set-file-logging(root.file-logging);
+                        if (root.file-logging) { root.show-log-info = true; }
+                    }
+                }
+            }
         }
     }
 }

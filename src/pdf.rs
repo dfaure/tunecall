@@ -39,8 +39,10 @@ pub fn page_count(path: &str) -> Result<u16> {
     })
 }
 
-/// Render the 0-based `index` page of `path`, scaled to `target_width` pixels wide.
-pub fn render_page(path: &str, index: u16, target_width: i32) -> Result<Image> {
+/// Render the 0-based `index` page of `path`, scaled to `target_width` pixels
+/// wide. With `invert`, the RGB channels are flipped pixel-wise so a black-on-
+/// white sheet renders white-on-black (a "dark mode" for the viewer).
+pub fn render_page(path: &str, index: u16, target_width: i32, invert: bool) -> Result<Image> {
     with_pdfium(|pdfium| {
         let doc = pdfium.load_pdf_from_file(path, None)?;
         let page = doc.pages().get(index)?;
@@ -49,7 +51,14 @@ pub fn render_page(path: &str, index: u16, target_width: i32) -> Result<Image> {
 
         let width = bitmap.width() as u32;
         let height = bitmap.height() as u32;
-        let rgba = bitmap.as_rgba_bytes();
+        let mut rgba = bitmap.as_rgba_bytes();
+        if invert {
+            for px in rgba.chunks_exact_mut(4) {
+                px[0] = 255 - px[0];
+                px[1] = 255 - px[1];
+                px[2] = 255 - px[2];
+            }
+        }
         let buffer = SharedPixelBuffer::<Rgba8Pixel>::clone_from_slice(&rgba, width, height);
         Ok(Image::from_rgba8(buffer))
     })

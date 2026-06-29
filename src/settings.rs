@@ -17,6 +17,10 @@ pub struct Settings {
     /// need it, and it's only read at startup (the Android logger can't be
     /// reconfigured after start), so a change takes effect on the next launch.
     pub file_logging: bool,
+    /// Invert the rendered PDF page colors (white-on-black instead of
+    /// black-on-white). Only affects the viewer's page image; the rest of the
+    /// app follows the system light/dark theme.
+    pub viewer_inverted: bool,
 }
 
 /// Load the settings. A missing file means "defaults"; a corrupt or unreadable
@@ -70,7 +74,10 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("settings.json");
 
-        let s = Settings { file_logging: true };
+        let s = Settings {
+            file_logging: true,
+            viewer_inverted: true,
+        };
         save_to(&path, &s).unwrap();
         assert_eq!(load_from(&path), s);
         assert!(!path.with_extension("part").exists()); // atomic write left no temp
