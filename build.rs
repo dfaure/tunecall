@@ -26,18 +26,22 @@ fn main() {
     println!("cargo:rerun-if-changed=.git/HEAD");
     println!("cargo:rerun-if-changed=.git/refs/heads");
 
-    let config = slint_build::CompilerConfiguration::new().with_style("material".into());
-
-    // material-light: too big
-    // fluent-light: clean, very square, blue highlight below the lineedit, blue selection
-    // cupertino-light: even smaller, clean too, blue highlight around the lineedit
-    // cosmic-light: too gray
+    // The UI uses the Material Components library (vendored in material-1.0/),
+    // registered here under the "@material" namespace. This replaces the old,
+    // now-deprecated built-in "material" widget style: that styled the
+    // std-widgets, whereas the library is a richer Material 3 component set
+    // imported directly in the .slint files. See material-1.0/README.md.
     //
-    // Note that changing the config rebuilds many things.
-    //
-    // To avoid editing this file, you can comment out with_style and set the env var SLINT_STYLE
-    // instead, on Linux (not an option on Android...). But it still requires rebuilding (i.e. set
-    // SLINT_STYLE when calling `cargo run`).
+    // No widget style is set: the only std-widget still used is ListView (kept
+    // for its row virtualization, which the library's ScrollView-based ListView
+    // lacks), so it falls back to the default style — only its scrollbar shows.
+    let config = slint_build::CompilerConfiguration::new().with_library_paths(
+        std::collections::HashMap::from([(
+            "material".to_string(),
+            std::path::Path::new(&std::env::var_os("CARGO_MANIFEST_DIR").unwrap())
+                .join("material-1.0/material.slint"),
+        )]),
+    );
 
     slint_build::compile_with_config("ui/app-window.slint", config).expect("Slint build failed");
 }

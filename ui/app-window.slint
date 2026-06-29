@@ -1,4 +1,18 @@
-import { Button, LineEdit, ListView, TabWidget, Palette, Switch } from "std-widgets.slint";
+// ListView stays from std-widgets: it virtualizes its rows, which the Material
+// library's ScrollView-based ListView does not, and our song lists can be long.
+import { ListView } from "std-widgets.slint";
+// Material Components (vendored in material-1.0/, registered as "@material" in
+// build.rs). MaterialPalette drives colors and follows the system light/dark
+// scheme; TabBar is the top tab strip; the buttons/TextField replace the old
+// std-widgets ones the deprecated "material" style used to theme.
+import {
+    MaterialPalette,
+    TabBar,
+    NavigationItem,
+    FilledButton,
+    TonalButton,
+    TextField,
+} from "@material";
 
 struct SongResult {
     title: string,
@@ -58,15 +72,15 @@ component IconButton inherits Rectangle {
     // Defaults to the palette foreground (adapts to dark mode). Callers that
     // sit on a fixed-color surface (e.g. an annotation over the white PDF page)
     // can override this so the glyph stays readable.
-    in property <color> icon-color: Palette.foreground;
+    in property <color> icon-color: MaterialPalette.on-surface;
     callback clicked <=> ta.clicked;
 
     width: 44px;
     height: 36px;
     border-radius: 4px;
     border-width: 1px;
-    border-color: Palette.foreground.with-alpha(0.13);
-    background: root.checked ? Palette.accent-background : !root.enabled ? Palette.foreground.with-alpha(0.03) : ta.pressed ? Palette.foreground.with-alpha(0.15) : ta.has-hover ? Palette.foreground.with-alpha(0.08) : Palette.foreground.with-alpha(0.04);
+    border-color: MaterialPalette.on-surface.with-alpha(0.13);
+    background: root.checked ? MaterialPalette.primary : !root.enabled ? MaterialPalette.on-surface.with-alpha(0.03) : ta.pressed ? MaterialPalette.on-surface.with-alpha(0.15) : ta.has-hover ? MaterialPalette.on-surface.with-alpha(0.08) : MaterialPalette.on-surface.with-alpha(0.04);
     opacity: root.enabled ? 1.0 : 0.35;
 
     ta := TouchArea {
@@ -118,7 +132,7 @@ component MenuItem inherits Rectangle {
                 viewbox-height: 24;
                 commands: "M 5 13 L 10 18 L 19 7";
                 fill: transparent;
-                stroke: Palette.foreground;
+                stroke: MaterialPalette.on-surface;
                 stroke-width: 2.5px;
                 opacity: root.checked ? 1.0 : 0.0;
             }
@@ -149,7 +163,7 @@ component MessageBox inherits Rectangle {
     Rectangle {
         width: min(parent.width - 48px, 360px);
         height: card.preferred-height;
-        background: Palette.background;
+        background: MaterialPalette.background;
         border-radius: 8px;
         // Swallow taps on the card so they don't reach the scrim and dismiss.
         TouchArea { }
@@ -241,7 +255,7 @@ component SetlistColumn inherits VerticalLayout {
                 Text {
                     text: "\{i + 1}. \{song.title}";
                     font-weight: 700;
-                    color: song.available ? black : gray;
+                    color: song.available ? MaterialPalette.on-surface : gray;
                     wrap: word-wrap;
                 }
                 Text {
@@ -285,7 +299,11 @@ component AddSongsColumn inherits VerticalLayout {
     callback add(int);
 
     spacing: 4px;
-    LineEdit {
+    TextField {
+        vertical-stretch: 0;
+        // `label` is the visible (floating) hint; placeholder-text is only used
+        // by this component for accessibility, never drawn.
+        label: @tr("Search songs to add");
         placeholder-text: @tr("Search songs to add");
         edited(text) => { root.search(text); }
     }
@@ -314,9 +332,12 @@ component AddSongsColumn inherits VerticalLayout {
                         overflow: elide;
                     }
                 }
-                Button {
-                    text: "Add";
-                    clicked => { root.add(ri); }
+                VerticalLayout {
+                    alignment: center;
+                    TonalButton {
+                        text: "Add";
+                        clicked => { root.add(ri); }
+                    }
                 }
             }
         }
@@ -445,9 +466,9 @@ export component AppWindow inherits Window {
     changed viewer-visible => {
         root.set-immersive(root.viewer-visible);
         if (root.viewer-visible) {
-            searchLineEdit.clear-focus();
+            searchField.clear-focus();
         } else if (root.active-tab == 0) {
-            searchLineEdit.focus();
+            searchField.focus();
         }
     }
 
@@ -474,290 +495,318 @@ export component AppWindow inherits Window {
     Rectangle {
         width: 100%;
         height: 100%;
-        background: Palette.background;
+        background: MaterialPalette.background;
     }
 
     // Keep the tab UI clear of the status bar (top), nav bar (bottom) and notch.
     // Unlike the viewer (which goes fullscreen), the tabs are an interactive
     // browsing surface, so we reserve the bar space rather than draw behind it.
     // Insets are 0 on desktop and where a bar autohides.
-    TabWidget {
+    Rectangle {
         x: root.safe-area-insets.left;
         y: root.safe-area-insets.top;
         width: root.width - root.safe-area-insets.left - root.safe-area-insets.right;
         height: root.height - root.safe-area-insets.top - root.safe-area-insets.bottom;
-        current-index <=> root.active-tab;
 
-        Tab {
-            title: "Search";
-
-            VerticalLayout {
-                padding: 8px;
-                spacing: 8px;
-
-                searchLineEdit := LineEdit {
-                    placeholder-text: @tr("Search songs");
-                    font-size: 28px;
-                    edited(text) => { root.search(text); }
-                }
-
-                Text {
-                    text: root.status;
-                    color: root.status-error ? #cc0000 : gray;
-                    font-weight: root.status-error ? 700 : 400;
-                    wrap: word-wrap;
-                }
-
-                resultsList := ListView {
-                    vertical-stretch: 1;
-                    mouse-drag-pan-enabled: true;
-                    horizontal-scrollbar-policy: always-off;
-                    for result[idx] in root.results : ResultRow {
-                        data: result;
-                        width: resultsList.viewport-width;
-                        clicked => { root.open-result(idx); }
-                    }
-                }
+        VerticalLayout {
+            // Material top tab strip. The three tab bodies below are stacked and
+            // toggled by visibility (not `if`): keeping them all instantiated
+            // means searchField stays in scope for the focus handlers above.
+            TabBar {
+                current-index <=> root.active-tab;
+                items: [
+                    { text: "Search" },
+                    { text: "Setlists" },
+                    { text: "Books" },
+                ];
             }
-        }
-
-        Tab {
-            title: "Setlists";
 
             Rectangle {
-                // List view: every setlist, with create / play / edit / delete.
-                if root.editing-index < 0 : VerticalLayout {
+                vertical-stretch: 1;
+
+                // --- Search tab ---
+                VerticalLayout {
+                    visible: root.active-tab == 0;
+                    width: 100%;
+                    height: 100%;
                     padding: 8px;
                     spacing: 8px;
 
-                    HorizontalLayout {
-                        spacing: 8px;
-                        newName := LineEdit {
-                            placeholder-text: "New setlist name";
-                            horizontal-stretch: 1;
-                        }
-                        VerticalLayout {
-                            alignment: center;
-                            Button {
-                                text: "Create";
-                                enabled: newName.text != "";
-                                clicked => {
-                                    root.create-setlist(newName.text);
-                                    newName.text = "";
-                                }
-                            }
-                        }
+                    searchField := TextField {
+                        // TextField's root is a layout, so it would otherwise absorb
+                        // the column's spare height; keep it at its preferred height
+                        // and let resultsList take the rest.
+                        vertical-stretch: 0;
+                        // `label` is the visible (floating) hint; placeholder-text
+                        // is only used by this component for accessibility.
+                        label: @tr("Search songs");
+                        placeholder-text: @tr("Search songs");
+                        edited(text) => { root.search(text); }
                     }
 
-                    setlistsList := ListView {
+                    Text {
+                        text: root.status;
+                        color: root.status-error ? #cc0000 : gray;
+                        font-weight: root.status-error ? 700 : 400;
+                        wrap: word-wrap;
+                    }
+
+                    resultsList := ListView {
                         vertical-stretch: 1;
                         mouse-drag-pan-enabled: true;
                         horizontal-scrollbar-policy: always-off;
-                        for s[idx] in root.setlists : ListRow {
-                            width: setlistsList.viewport-width;
-                            // Tapping a non-empty setlist plays it; Edit/Delete
-                            // stay as explicit buttons. An empty one can't play,
-                            // so its row tap is a no-op (use Edit to add songs).
-                            clicked => {
-                                if (s.song-count > 0) {
-                                    root.play-setlist(idx);
-                                }
-                            }
-                            VerticalLayout {
+                        for result[idx] in root.results : ResultRow {
+                            data: result;
+                            width: resultsList.viewport-width;
+                            clicked => { root.open-result(idx); }
+                        }
+                    }
+                }
+
+                // --- Setlists tab ---
+                Rectangle {
+                    visible: root.active-tab == 1;
+                    width: 100%;
+                    height: 100%;
+                    // List view: every setlist, with create / play / edit / delete.
+                    if root.editing-index < 0 : VerticalLayout {
+                        padding: 8px;
+                        spacing: 8px;
+
+                        HorizontalLayout {
+                            spacing: 8px;
+                            newName := TextField {
+                                label: "New setlist name";
+                                placeholder-text: "New setlist name";
                                 horizontal-stretch: 1;
-                                spacing: 2px;
-                                Text {
-                                    text: s.name;
-                                    font-weight: 700;
-                                    wrap: word-wrap;
-                                }
-                                Text {
-                                    text: "\{s.song-count} song(s)";
-                                    color: gray;
-                                    font-size: 16px;
-                                }
                             }
                             VerticalLayout {
                                 alignment: center;
-                                Button {
-                                    text: "Edit";
-                                    clicked => { root.edit-setlist(idx); }
-                                }
-                            }
-                            VerticalLayout {
-                                alignment: center;
-                                Button {
-                                    text: "Delete";
+                                FilledButton {
+                                    text: "Create";
+                                    enabled: newName.text != "";
                                     clicked => {
-                                        root.confirm-delete-name = s.name;
-                                        root.confirm-delete-index = idx;
+                                        root.create-setlist(newName.text);
+                                        newName.text = "";
+                                    }
+                                }
+                            }
+                        }
+
+                        setlistsList := ListView {
+                            vertical-stretch: 1;
+                            mouse-drag-pan-enabled: true;
+                            horizontal-scrollbar-policy: always-off;
+                            for s[idx] in root.setlists : ListRow {
+                                width: setlistsList.viewport-width;
+                                // Tapping a non-empty setlist plays it; Edit/Delete
+                                // stay as explicit buttons. An empty one can't play,
+                                // so its row tap is a no-op (use Edit to add songs).
+                                clicked => {
+                                    if (s.song-count > 0) {
+                                        root.play-setlist(idx);
+                                    }
+                                }
+                                VerticalLayout {
+                                    horizontal-stretch: 1;
+                                    spacing: 2px;
+                                    Text {
+                                        text: s.name;
+                                        font-weight: 700;
+                                        wrap: word-wrap;
+                                    }
+                                    Text {
+                                        text: "\{s.song-count} song(s)";
+                                        color: gray;
+                                        font-size: 16px;
+                                    }
+                                }
+                                VerticalLayout {
+                                    alignment: center;
+                                    TonalButton {
+                                        text: "Edit";
+                                        clicked => { root.edit-setlist(idx); }
+                                    }
+                                }
+                                VerticalLayout {
+                                    alignment: center;
+                                    TonalButton {
+                                        text: "Delete";
+                                        clicked => {
+                                            root.confirm-delete-name = s.name;
+                                            root.confirm-delete-index = idx;
+                                        }
                                     }
                                 }
                             }
                         }
                     }
+
+                    // Editor view: rename/close on top, then two columns — the
+                    // setlist (reorder/remove) on the left, a live song search with
+                    // preview/add on the right (Mobile Sheets style).
+                    if root.editing-index >= 0 : VerticalLayout {
+                        padding: 8px;
+                        spacing: 6px;
+
+                        HorizontalLayout {
+                            vertical-stretch: 0;
+                            spacing: 8px;
+                            // The name applies live as you type (no separate Rename
+                            // button to forget). Rust skips empty input, so clearing
+                            // the field to retype never wipes the stored name; it also
+                            // doesn't write the name back here, so the caret is stable.
+                            editName := TextField {
+                                label: "Setlist name";
+                                text: root.editing-name;
+                                horizontal-stretch: 1;
+                                edited(text) => { root.rename-setlist(root.editing-index, text); }
+                            }
+                            VerticalLayout {
+                                alignment: center;
+                                TonalButton {
+                                    text: "Close";
+                                    clicked => { root.close-setlist-editor(); }
+                                }
+                            }
+                        }
+
+                        // Wide (tablet): setlist and add-search side by side. Narrow
+                        // (phone): stacked, setlist on top and add-search below — a
+                        // horizontal split below ~700px squeezes each pane so thin
+                        // that every title wraps one character per line.
+                        if root.width >= 700px : HorizontalLayout {
+                            vertical-stretch: 1;
+                            spacing: 12px;
+                            SetlistColumn {
+                                horizontal-stretch: 1;
+                                songs: root.editing-songs;
+                                move-up(i) => { root.setlist-move-up(i); }
+                                move-down(i) => { root.setlist-move-down(i); }
+                                remove(i) => { root.setlist-remove-song(i); }
+                            }
+                            VSeparator { }
+                            AddSongsColumn {
+                                horizontal-stretch: 1;
+                                results: root.add-results;
+                                search(t) => { root.setlist-add-search(t); }
+                                preview(i) => { root.preview-song(i); }
+                                add(i) => { root.setlist-add-song(i); }
+                            }
+                        }
+                        if root.width < 700px : VerticalLayout {
+                            vertical-stretch: 1;
+                            spacing: 8px;
+                            // Give the add-search pane twice the height of the setlist
+                            // pane (~33/66): its search field summons the virtual
+                            // keyboard, which would otherwise cover an even split's
+                            // results.
+                            SetlistColumn {
+                                vertical-stretch: 1;
+                                songs: root.editing-songs;
+                                move-up(i) => { root.setlist-move-up(i); }
+                                move-down(i) => { root.setlist-move-down(i); }
+                                remove(i) => { root.setlist-remove-song(i); }
+                            }
+                            HSeparator { }
+                            AddSongsColumn {
+                                vertical-stretch: 2;
+                                results: root.add-results;
+                                search(t) => { root.setlist-add-search(t); }
+                                preview(i) => { root.preview-song(i); }
+                                add(i) => { root.setlist-add-song(i); }
+                            }
+                        }
+                    }
                 }
 
-                // Editor view: rename/close on top, then two columns — the
-                // setlist (reorder/remove) on the left, a live song search with
-                // preview/add on the right (Mobile Sheets style).
-                if root.editing-index >= 0 : VerticalLayout {
+                // --- Books tab ---
+                // Setup-time: every indexed book, marking whether its PDF is
+                // installed. PDFs are not bundled (copyright), so this tells the user
+                // which PDFs they can install to enable a book.
+                VerticalLayout {
+                    visible: root.active-tab == 2;
+                    width: 100%;
+                    height: 100%;
                     padding: 8px;
                     spacing: 6px;
 
                     HorizontalLayout {
-                        vertical-stretch: 0;
                         spacing: 8px;
-                        // The name applies live as you type (no separate Rename
-                        // button to forget). Rust skips empty input, so clearing
-                        // the field to retype never wipes the stored name; it also
-                        // doesn't write the name back here, so the caret is stable.
-                        editName := LineEdit {
-                            text: root.editing-name;
-                            horizontal-stretch: 1;
-                            edited(text) => { root.rename-setlist(root.editing-index, text); }
-                        }
-                        Button {
-                            text: "Close";
-                            clicked => { root.close-setlist-editor(); }
-                        }
-                    }
-
-                    // Wide (tablet): setlist and add-search side by side. Narrow
-                    // (phone): stacked, setlist on top and add-search below — a
-                    // horizontal split below ~700px squeezes each pane so thin
-                    // that every title wraps one character per line.
-                    if root.width >= 700px : HorizontalLayout {
-                        vertical-stretch: 1;
-                        spacing: 12px;
-                        SetlistColumn {
-                            horizontal-stretch: 1;
-                            songs: root.editing-songs;
-                            move-up(i) => { root.setlist-move-up(i); }
-                            move-down(i) => { root.setlist-move-down(i); }
-                            remove(i) => { root.setlist-remove-song(i); }
-                        }
-                        VSeparator { }
-                        AddSongsColumn {
-                            horizontal-stretch: 1;
-                            results: root.add-results;
-                            search(t) => { root.setlist-add-search(t); }
-                            preview(i) => { root.preview-song(i); }
-                            add(i) => { root.setlist-add-song(i); }
-                        }
-                    }
-                    if root.width < 700px : VerticalLayout {
-                        vertical-stretch: 1;
-                        spacing: 8px;
-                        // Give the add-search pane twice the height of the setlist
-                        // pane (~33/66): its search field summons the virtual
-                        // keyboard, which would otherwise cover an even split's
-                        // results.
-                        SetlistColumn {
-                            vertical-stretch: 1;
-                            songs: root.editing-songs;
-                            move-up(i) => { root.setlist-move-up(i); }
-                            move-down(i) => { root.setlist-move-down(i); }
-                            remove(i) => { root.setlist-remove-song(i); }
-                        }
-                        HSeparator { }
-                        AddSongsColumn {
-                            vertical-stretch: 2;
-                            results: root.add-results;
-                            search(t) => { root.setlist-add-search(t); }
-                            preview(i) => { root.preview-song(i); }
-                            add(i) => { root.setlist-add-song(i); }
-                        }
-                    }
-                }
-            }
-        }
-
-        Tab {
-            title: "Books";
-
-            // Setup-time: every indexed book, marking whether its PDF is
-            // installed. PDFs are not bundled (copyright), so this tells the user
-            // which PDFs they can install to enable a book.
-            VerticalLayout {
-                padding: 8px;
-                spacing: 6px;
-
-                HorizontalLayout {
-                    spacing: 8px;
-                    Text {
-                        text: "Supported books";
-                        font-weight: 700;
-                        vertical-alignment: center;
-                        horizontal-stretch: 1;
-                    }
-                    Button {
-                        text: "Reload";
-                        clicked => { root.reload(); }
-                    }
-                }
-
-                Text {
-                    text: "Reload fetches the latest indexes. Install the matching PDF to enable a book; PDFs are not bundled.";
-                    color: gray;
-                    font-size: 16px;
-                    wrap: word-wrap;
-                }
-
-                Text {
-                    text: root.status;
-                    color: root.status-error ? #cc0000 : gray;
-                    font-weight: root.status-error ? 700 : 400;
-                    font-size: 16px;
-                    wrap: word-wrap;
-                }
-
-                booksList := ListView {
-                    vertical-stretch: 1;
-                    mouse-drag-pan-enabled: true;
-                    horizontal-scrollbar-policy: always-off;
-                    for book in root.book-list : ListRow {
-                        width: booksList.viewport-width;
-                        // Title (from the index) on top, file stem underneath in
-                        // gray. When the index carries no title, the stem is the
-                        // only name we have, so it stands in as the main line.
-                        VerticalLayout {
-                            horizontal-stretch: 1;
-                            spacing: 2px;
-                            Text {
-                                text: book.title != "" ? book.title : book.name;
-                                font-weight: 700;
-                                wrap: word-wrap;
-                            }
-                            if book.title != "" : Text {
-                                text: book.name;
-                                color: gray;
-                                font-size: 16px;
-                                wrap: word-wrap;
-                            }
-                        }
                         Text {
-                            text: book.installed ? "installed" : "PDF missing";
-                            color: book.installed ? #2e7d32 : gray;
+                            text: "Supported books";
+                            font-weight: 700;
                             vertical-alignment: center;
+                            horizontal-stretch: 1;
+                        }
+                        TonalButton {
+                            text: "Reload";
+                            clicked => { root.reload(); }
                         }
                     }
-                }
 
-                // App name / version / build, parked at the bottom so it's
-                // available for bug reports without being intrusive.
-                Text {
-                    text: root.about;
-                    color: gray;
-                    font-size: 14px;
-                    horizontal-alignment: center;
+                    Text {
+                        text: "Reload fetches the latest indexes. Install the matching PDF to enable a book; PDFs are not bundled.";
+                        color: gray;
+                        font-size: 16px;
+                        wrap: word-wrap;
+                    }
+
+                    Text {
+                        text: root.status;
+                        color: root.status-error ? #cc0000 : gray;
+                        font-weight: root.status-error ? 700 : 400;
+                        font-size: 16px;
+                        wrap: word-wrap;
+                    }
+
+                    booksList := ListView {
+                        vertical-stretch: 1;
+                        mouse-drag-pan-enabled: true;
+                        horizontal-scrollbar-policy: always-off;
+                        for book in root.book-list : ListRow {
+                            width: booksList.viewport-width;
+                            // Title (from the index) on top, file stem underneath in
+                            // gray. When the index carries no title, the stem is the
+                            // only name we have, so it stands in as the main line.
+                            VerticalLayout {
+                                horizontal-stretch: 1;
+                                spacing: 2px;
+                                Text {
+                                    text: book.title != "" ? book.title : book.name;
+                                    font-weight: 700;
+                                    wrap: word-wrap;
+                                }
+                                if book.title != "" : Text {
+                                    text: book.name;
+                                    color: gray;
+                                    font-size: 16px;
+                                    wrap: word-wrap;
+                                }
+                            }
+                            Text {
+                                text: book.installed ? "installed" : "PDF missing";
+                                color: book.installed ? #2e7d32 : gray;
+                                vertical-alignment: center;
+                            }
+                        }
+                    }
+
+                    // App name / version / build, parked at the bottom so it's
+                    // available for bug reports without being intrusive.
+                    Text {
+                        text: root.about;
+                        color: gray;
+                        font-size: 14px;
+                        horizontal-alignment: center;
+                    }
                 }
             }
         }
     }
 
     // Hamburger / settings button — floats in the tab-bar's top-right corner.
-    // Declared after the TabWidget so it draws on top; declared before the viewer
+    // Declared after the tab UI so it draws on top; declared before the viewer
     // overlay so the viewer covers it when a song is open.
     IconButton {
         x: root.width - root.safe-area-insets.right - self.width - 4px;
@@ -783,7 +832,7 @@ export component AppWindow inherits Window {
             width: min(260px, root.width - 16px);
             height: menu-vl.preferred-height;
             border-radius: 8px;
-            background: Palette.background;
+            background: MaterialPalette.background;
             drop-shadow-blur: 12px;
             drop-shadow-color: #00000030;
             border-width: 1px;
@@ -806,11 +855,11 @@ export component AppWindow inherits Window {
     }
 
     // Viewer overlay (covers the whole window, tab bar included, when a song is
-    // open). A later sibling than the TabWidget, so it draws on top.
+    // open). A later sibling than the tab UI, so it draws on top.
     if root.viewer-visible : Rectangle {
         width: root.width;
         height: root.height;
-        background: Palette.background;
+        background: MaterialPalette.background;
 
         VerticalLayout {
             // Keep the content (toolbar, page badge) clear of the system bars.
@@ -829,7 +878,7 @@ export component AppWindow inherits Window {
             // songs of a setlist), so you can step through without going back.
             HorizontalLayout {
                 spacing: 8px;
-                Button {
+                TonalButton {
                     text: "‹ Prev";
                     enabled: root.result-index > 0;
                     clicked => { root.prev-result(); }
@@ -858,7 +907,7 @@ export component AppWindow inherits Window {
                         root.adding-text = false;
                     }
                 }
-                Button {
+                TonalButton {
                     text: root.edit-mode ? "Done" : "Edit";
                     clicked => {
                         root.edit-mode = !root.edit-mode;
@@ -866,18 +915,17 @@ export component AppWindow inherits Window {
                         root.moving-annotations = false;
                     }
                 }
-                Button {
+                TonalButton {
                     text: "Next ›";
                     enabled: root.result-index < root.result-count - 1;
                     clicked => { root.next-result(); }
                 }
-                if root.viewer-add-mode : Button {
+                if root.viewer-add-mode : FilledButton {
                     text: root.viewer-added ? "Added" : "Add";
-                    primary: !root.viewer-added;
                     enabled: !root.viewer-added;
                     clicked => { root.viewer-add-song(); }
                 }
-                Button {
+                TonalButton {
                     text: "Close";
                     // Reset edit state too — next song open shouldn't inherit
                     // a stale toolbar mode from this one.
@@ -1177,7 +1225,7 @@ export component AppWindow inherits Window {
             height: card.preferred-height;
             x: (parent.width - self.width) / 2;
             y: (parent.height - self.height) / 2;
-            background: Palette.background;
+            background: MaterialPalette.background;
             border-radius: 8px;
             drop-shadow-blur: 12px;
             drop-shadow-color: #00000040;
@@ -1190,11 +1238,11 @@ export component AppWindow inherits Window {
                     text: "Add note";
                     font-size: 16px;
                     font-weight: 700;
-                    color: Palette.foreground;
+                    color: MaterialPalette.on-surface;
                 }
-                ann-input := LineEdit {
+                ann-input := TextField {
+                    label: "Note";
                     text <=> root.annotation-text;
-                    font-size: 16px;
                     accepted => {
                         if (root.annotation-text != "") {
                             root.save-annotation(root.pending-ann-x, root.pending-ann-y, root.annotation-text);
@@ -1205,7 +1253,7 @@ export component AppWindow inherits Window {
                 }
                 HorizontalLayout {
                     spacing: 8px;
-                    Button {
+                    TonalButton {
                         text: "Cancel";
                         horizontal-stretch: 1;
                         clicked => {
@@ -1213,9 +1261,8 @@ export component AppWindow inherits Window {
                             root.annotation-text = "";
                         }
                     }
-                    Button {
+                    FilledButton {
                         text: "OK";
-                        primary: true;
                         horizontal-stretch: 1;
                         clicked => {
                             if (root.annotation-text != "") {
@@ -1231,7 +1278,7 @@ export component AppWindow inherits Window {
     }
 
     // Confirm-before-delete dialog for a setlist. A later sibling than the
-    // TabWidget so it draws on top; tapping outside the card cancels (same as
+    // tab UI so it draws on top; tapping outside the card cancels (same as
     // the Cancel button).
     if root.confirm-delete-index >= 0 : MessageBox {
         dismissed => { root.confirm-delete-index = -1; }
@@ -1243,12 +1290,12 @@ export component AppWindow inherits Window {
         }
         HorizontalLayout {
             spacing: 8px;
-            Button {
+            TonalButton {
                 text: "Cancel";
                 horizontal-stretch: 1;
                 clicked => { root.confirm-delete-index = -1; }
             }
-            Button {
+            FilledButton {
                 text: "Delete";
                 horizontal-stretch: 1;
                 clicked => {
@@ -1273,7 +1320,7 @@ export component AppWindow inherits Window {
             wrap: word-wrap;
             horizontal-alignment: center;
         }
-        Button {
+        FilledButton {
             text: "OK";
             clicked => { root.show-log-info = false; }
         }

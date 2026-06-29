@@ -35,7 +35,7 @@ Android builds target `aarch64-linux-android` and use Gradle (`./gradlew build` 
 
 ## Architecture (viewer)
 
-**UI layer** (`ui/*.slint`): Declarative Slint UI compiled at build time via `build.rs`. Uses `fluent-light` style. `app-window.slint` is the main window: a search box, a results list, and a full-window page viewer overlay.
+**UI layer** (`ui/*.slint`): Declarative Slint UI compiled at build time via `build.rs`. Uses the **Material Components** library (Material 3), vendored in `material-1.0/` and registered as the `@material` namespace in `build.rs` — this replaced the now-deprecated built-in `material` widget *style*. The only std-widget still used is `ListView`, kept for its row virtualization (the library's `ScrollView`-based `ListView` doesn't virtualize); it falls back to the default style, so only its scrollbar shows. `MaterialPalette` drives colors and follows the system light/dark scheme. `app-window.slint` is the main window: a search box, a results list, and a full-window page viewer overlay.
 
 **Application core** (`src/lib.rs`): `tunecall_main()` creates the `AppWindow`, loads the library, and wires up callbacks (search, open-result, reload, prev/next/close). The whole library and the current search results are held in Rust (`Rc<RefCell<Vec<db::Song>>>`) so a clicked row maps straight to its song (file + page). `android_main()` is the Android `#[no_mangle]` entry point that resolves the app-specific data dir, initializes logging-to-file and the Slint Android backend, then calls `tunecall_main()`.
 
