@@ -27,38 +27,72 @@ Rule of thumb: bump `versionCode` for **every** `.aab` you upload; bump
 `versionName` (in `Cargo.toml`) only when the user-facing version actually
 changes.
 
-## 2. Build the signed App Bundle
+## 2. Commit and tag
 
-On the build device:
+Commit the bump on its own (message: just the version, e.g. `1.0.3`) and tag
+the commit with `vX.Y.Z`:
 
 ```bash
-cargo build --lib --target aarch64-linux-android \
-    --no-default-features \
-    --features slint/backend-android-activity-06
-./gradlew bundleRelease
+git add Cargo.toml Cargo.lock app/build.gradle
+git commit -m "1.0.3"
+git tag -a v1.0.3 -m "1.0.3"
+git push && git push --tags
 ```
 
-The signed App Bundle lands at:
+The tag is what we point at to reproduce / debug a shipped build, so always
+make one before building the AAB.
 
+## 3. Build the signed App Bundle
+
+On the build device (Termux on the tablet), run the **`build_bundle.sh`**
+script — it's the single source of truth for the AAB build:
+
+```bash
+./build_bundle.sh
 ```
-app/build/outputs/bundle/release/app-release.aab
-```
+
+What that script does (don't paraphrase it here — read the file if you need
+the exact commands):
+
+1. `cargo build --lib --no-default-features --release --features slint/backend-android-activity-06`
+   builds the Rust library. The host on the tablet **is** aarch64-linux-android,
+   so no `--target` flag is needed; if you ever build from a non-Android host
+   add `--target aarch64-linux-android`.
+2. Copies `target/release/libtunecall.so` into `app/src/main/jniLibs/arm64-v8a/`.
+3. `aarch64-linux-android-strip -s` strips the `.so` (~136 MB → a few MB).
+   **This strip must stay** — see Troubleshooting below.
+4. `./gradlew bundleRelease` produces the signed App Bundle at
+   `app/build/outputs/bundle/release/app-release.aab`.
+5. Copies the AAB into `/sdcard/Download/` so the Play Console app on the same
+   tablet can pick it up.
 
 Verify it's signed with your **upload** key, not the debug key:
 
 ```bash
-# the cert should be your "upload" key, not "androiddebugkey"
 keytool -printcert -jarfile app/build/outputs/bundle/release/app-release.aab
 ```
 
 (If it shows `androiddebugkey`, the signing setup is missing — see
 [RELEASE_SIGNING.md](RELEASE_SIGNING.md).)
 
-## 3. Upload to the Play Console
+### Quick local APK (no Play involved)
 
-Upload `app-release.aab` to your release track (e.g. *Internal testing* /
-*Closed testing*). If Play rejects the version code as already used, go back to
-step 1 and bump `versionCode`.
+For a fast on-device smoke test, use the `m` zsh function (defined in
+`~/.zshrc`). In the project root it builds the Rust lib, strips the `.so`,
+runs `./gradlew assembleRelease`, and drops the **APK** in `/sdcard/Download/`
+for sideloading. Use this for iteration; use `build_bundle.sh` when you're
+actually shipping.
+
+## 4. Upload to the Play Console
+
+From the tablet itself, open the Play Console app, pick the release track
+(*Internal testing* / *Closed testing* / *Production*), and upload
+`/sdcard/Download/app-release.aab`. The `upload_bundle.sh` / `upload_apk.sh`
+scripts (which `ncftpput` the artefact to davidfaure.fr) are leftovers from
+the pre-Play APK-sideloading workflow — not needed for Play releases.
+
+If Play rejects the version code as already used, go back to step 1 and bump
+`versionCode`.
 
 ## Troubleshooting
 
