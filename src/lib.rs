@@ -446,7 +446,7 @@ pub fn tunecall_main() -> Result<(), Box<dyn Error>> {
     // The viewer asks to go fullscreen (hide the system bars) while it's open;
     // Android-only, a no-op elsewhere (the callback stays unconnected).
     #[cfg(target_os = "android")]
-    ui.on_set_immersive(|enabled| immersive::set(enabled));
+    ui.on_set_immersive(immersive::set);
 
     ui.on_search({
         let ui_handle = ui.as_weak();

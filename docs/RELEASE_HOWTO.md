@@ -54,10 +54,11 @@ script — it's the single source of truth for the AAB build:
 What that script does (don't paraphrase it here — read the file if you need
 the exact commands):
 
-1. `cargo build --lib --no-default-features --release --features slint/backend-android-activity-06`
-   builds the Rust library. The host on the tablet **is** aarch64-linux-android,
-   so no `--target` flag is needed; if you ever build from a non-Android host
-   add `--target aarch64-linux-android`.
+1. `cargo build --lib --release` builds the Rust library. Cargo.toml selects the
+   Android slint backend automatically for `target_os = "android"`, so no extra
+   `--features` flag is needed. The host on the tablet **is** aarch64-linux-android,
+   so no `--target` flag is needed either; from a non-Android host add
+   `--target aarch64-linux-android`.
 2. Copies `target/release/libtunecall.so` into `app/src/main/jniLibs/arm64-v8a/`.
 3. `aarch64-linux-android-strip -s` strips the `.so` (~136 MB → a few MB).
    **This strip must stay** — see Troubleshooting below.

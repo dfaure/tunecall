@@ -31,7 +31,7 @@ cd indexer && cargo run -- --help           # The indexer (separate package)
 
 Pre-commit hooks enforce `cargo fmt` and `cargo clippy` on every commit.
 
-Android builds target `aarch64-linux-android` and use Gradle (`./gradlew build` from root). The `indexer/` crate is Linux-only and never part of the Android build.
+Android: `cargo build --lib --release` (then `./gradlew bundleRelease` — see `build_bundle.sh` and `docs/RELEASE_HOWTO.md`). Cargo.toml selects the slint backend per target (`backend-winit` on desktop, `backend-android-activity-06` on Android), so no extra `--features` is needed. Termux on the tablet runs as `aarch64-linux-android`, so the host build is the Android `.so`; from a non-Android host add `--target aarch64-linux-android`. The `indexer/` crate is Linux-only and never part of the Android build.
 
 ## Architecture (viewer)
 

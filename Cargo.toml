@@ -6,9 +6,11 @@ edition = "2024"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-# For desktop builds. For Android, the backend is switched by Cargo features
-# from the command line / Gradle (backend-android-activity-06), see README.md.
-slint = { version = "1.15.1", features = ["std", "compat-1-2", "backend-winit", "renderer-femtovg"] }
+# Backend is split per-target below: winit on desktop, android-activity on
+# Android. Cargo unions feature sets across the matching target blocks, so the
+# correct backend is picked from the build target alone — no extra `--features`
+# needed on the command line.
+slint = { version = "1.15.1", default-features = false, features = ["std", "compat-1-2", "renderer-femtovg"] }
 flexi_logger = "0.31.2"
 log = "0.4.27"
 anyhow = "1.0.98"
@@ -33,12 +35,18 @@ futures-util = "0.3.31"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
-# Android-only: JNI to toggle immersive fullscreen (hide the system bars) while
-# the PDF viewer is open. Slint's android backend exposes no fullscreen API, so
-# we call a small Java helper (app/src/main/java/com/tunecall/app/Immersive.java)
-# on the UI thread. Pinned to the stable 0.21 API, independent of the backend's
-# own jni version.
+# Desktop backend (anything that isn't Android): winit.
+[target.'cfg(not(target_os = "android"))'.dependencies]
+slint = { version = "1.15.1", default-features = false, features = ["backend-winit"] }
+
+# Android-only deps:
+# - slint backend: android-activity (Slint's Android backend).
+# - jni: a small Java helper (app/src/main/java/com/tunecall/app/Immersive.java)
+#   called on the UI thread to toggle immersive fullscreen while the PDF viewer
+#   is open (Slint's android backend exposes no fullscreen API). Pinned to the
+#   stable 0.21 API, independent of the backend's own jni version.
 [target.'cfg(target_os = "android")'.dependencies]
+slint = { version = "1.15.1", default-features = false, features = ["backend-android-activity-06"] }
 jni = "0.21"
 
 [build-dependencies]
