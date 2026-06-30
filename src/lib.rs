@@ -120,23 +120,13 @@ fn set_idle_status(ui: &AppWindow, library: &Rc<RefCell<Vec<Song>>>) {
     if n > 0 {
         ui.set_status(format!("{n} songs indexed. Type to search.").into());
     } else if db::list_books().is_empty() {
-        ui.set_status(
-            format!(
-                "No song indexes found in\n{}\nTap Reload to download them.",
-                storage::pdf_dir().display()
-            )
-            .into(),
-        );
+        // The Books tab always shows the install path, so the status line just
+        // needs to point the user at Reload.
+        ui.set_status("No song indexes found. Tap Reload to download them.".into());
     } else {
-        // Indexes are present but no matching PDF is installed yet, so nothing is
-        // searchable. Tell the user where to put the PDFs.
-        ui.set_status(
-            format!(
-                "No PDFs installed yet. Copy them to\n{}\nvia USB.",
-                storage::pdf_dir().display()
-            )
-            .into(),
-        );
+        // Indexes are present but no matching PDF is installed yet, so nothing
+        // is searchable. The path is on the Books tab already.
+        ui.set_status("No PDFs installed yet.".into());
     }
 }
 
@@ -404,6 +394,10 @@ pub fn tunecall_main() -> Result<(), Box<dyn Error>> {
     } else {
         TAB_SEARCH
     });
+
+    // Install path shown on the Books tab so users always know where to drop
+    // their own PDFs over USB, even after Reload has populated the library.
+    ui.set_pdf_dir(pdf_dir.display().to_string().into());
 
     // App name / version / build, for the Books-tab footer (handy in bug reports).
     ui.set_about(
