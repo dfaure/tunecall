@@ -1,0 +1,68 @@
+# Generate the XCode project with `xcodegen` run from this dir:
+#   cd ios && xcodegen generate
+# then open TuneCall.xcodeproj, or build headless with xcodebuild (see
+# docs / the run steps). The pdfium dylib is fetched automatically at build
+# time if missing (see the "Embed pdfium dylib" phase), so no manual
+# `./fetch-pdfium.sh ios` step is required first.
+name: TuneCall
+options:
+  bundleIdPrefix: fr.davidfaure.tunecall
+settings:
+  # Slint's build script (build_for_ios_with_cargo.bash) runs cargo from a
+  # user script phase; Xcode's default script sandboxing would block it.
+  ENABLE_USER_SCRIPT_SANDBOXING: NO
+targets:
+  TuneCall:
+    type: application
+    platform: iOS
+    deploymentTarget: "16.0"
+    info:
+      path: Info.plist
+      properties:
+        CFBundleDisplayName: TuneCall
+        # Empty dict = default launch screen (a valid UILaunchScreen is required
+        # for full-screen / iPad multitasking).
+        UILaunchScreen: {}
+        ITSAppUsesNonExemptEncryption: false
+        # Expose the app's Documents/ folder (which storage.rs uses as pdf_dir on
+        # iOS) so users can drop their own PDFs in: UIFileSharingEnabled surfaces
+        # it in Finder over USB, LSSupportsOpeningDocumentsInPlace in the Files app.
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+    # No clang-compiled sources: the executable is produced by cargo and the
+    # pdfium dylib is embedded, both via the script phases below.
+    sources: []
+    postCompileScripts:
+      # The Rust executable is produced by cargo, not clang, so a post-compile
+      # script builds it and drops it at the path Xcode expects. Run from the
+      # repo root (parent of this SRCROOT) so cargo finds Cargo.toml, keeping the
+      # vendored bash script byte-for-byte with upstream.
+      - name: Build Rust binary with cargo
+        script: |
+          cd "$SRCROOT/.." && ./ios/build_for_ios_with_cargo.bash tunecall
+        outputFileLists: $TARGET_BUILD_DIR/$EXECUTABLE_PATH
+      # Embed pdfium beside the executable (src/pdf.rs binds to it at runtime).
+      # It's git-ignored and produced by fetch-pdfium.sh, so fetch it if missing
+      # rather than silently shipping an app that can't render PDFs. A failed
+      # fetch (e.g. offline) aborts the build via `set -e` instead of leaving the
+      # dylib out. UNLOCALIZED_RESOURCES_FOLDER_PATH is the .app bundle root on
+      # iOS, i.e. right next to the executable.
+      - name: Embed pdfium dylib
+        script: |
+          set -euo pipefail
+          if [ ! -f "$SRCROOT/libpdfium.dylib" ]; then
+            echo "note: libpdfium.dylib missing — running fetch-pdfium.sh ios"
+            "$SRCROOT/../fetch-pdfium.sh" ios
+          fi
+          cp "$SRCROOT/libpdfium.dylib" "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/"
+        outputFiles:
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/libpdfium.dylib

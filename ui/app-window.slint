@@ -377,8 +377,11 @@ export component AppWindow inherits Window {
 
     // --- books list (setup-time: which PDFs are indexed/supported) ---
     in property <[BookEntry]> book-list;
-    // Filesystem path to drop PDFs into (reachable over USB). Always shown in the
-    // Books tab so users can add books even after Reload populates the library.
+    // Folder to drop PDFs into, shown on the Books tab so users can add books even
+    // after Reload populates the library. The instruction wording below switches on
+    // the built-in `Platform.os`: iOS exposes the folder via the Files app / Finder
+    // (and its raw sandbox path is meaningless, so it isn't shown there); elsewhere
+    // it's a USB-reachable filesystem path.
     in property <string> pdf-dir;
     in property <string> about; // app name, version and build (footer of the Books tab)
     // Opt-in debug logging (Books tab). Reflects the saved setting; the callback
@@ -767,11 +770,13 @@ export component AppWindow inherits Window {
                         wrap: word-wrap;
                     }
 
-                    // Always-visible installation path. PDFs aren't shipped, so
-                    // even when Reload has populated the library the user still
-                    // needs to know where to drop additional books over USB.
+                    // Always-visible installation instructions. PDFs aren't
+                    // shipped, so even when Reload has populated the library the
+                    // user still needs to know where to drop additional books.
                     Text {
-                        text: "To add a PDF, copy it via USB to:\n\{root.pdf-dir}";
+                        text: Platform.os == OperatingSystemType.ios
+                            ? "To add PDFs: open the Files app → On My iPad/iPhone → TuneCall, or connect to a Mac (Finder → device → Files → TuneCall). Then tap Reload."
+                            : "To add a PDF, copy it via USB to:\n\{root.pdf-dir}";
                         color: gray;
                         font-size: 16px;
                         wrap: word-wrap;

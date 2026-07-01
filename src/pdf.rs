@@ -19,16 +19,33 @@ fn with_pdfium<R>(f: impl FnOnce(&Pdfium) -> Result<R>) -> Result<R> {
     PDFIUM.with(|cell| {
         let mut slot = cell.borrow_mut();
         if slot.is_none() {
-            // Prefer a pdfium library shipped next to the executable, then fall back
-            // to a system-wide one. On Android it is packaged into the APK's jniLibs.
+            let lib_dir = pdfium_library_dir();
             let bindings =
-                Pdfium::bind_to_library(Pdfium::pdfium_platform_library_name_at_path("./"))
+                Pdfium::bind_to_library(Pdfium::pdfium_platform_library_name_at_path(&lib_dir))
                     .or_else(|_| Pdfium::bind_to_system_library())
                     .map_err(|e| anyhow!("failed to load the pdfium library: {e}"))?;
             *slot = Some(Pdfium::new(bindings));
         }
         f(slot.as_ref().expect("pdfium just initialized"))
     })
+}
+
+/// Directory to look for the pdfium shared library in. Everywhere except iOS
+/// this is the current directory (the loader also falls back to the system
+/// library); on iOS it's the app bundle directory that holds the executable,
+/// since that's the only place a sandboxed app can load an embedded dylib from.
+fn pdfium_library_dir() -> String {
+    #[cfg(target_os = "ios")]
+    {
+        // `<App>.app/tunecall` -> `<App>.app/`, where the build copies the dylib.
+        if let Ok(exe) = std::env::current_exe()
+            && let Some(dir) = exe.parent()
+        {
+            // pdfium_platform_library_name_at_path expects a trailing separator.
+            return format!("{}/", dir.display());
+        }
+    }
+    "./".to_string()
 }
 
 /// Number of pages in the document at `path`.
