@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Cancel superseded runs on the same ref (e.g. rapid pushes to a PR).
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # Desktop (Linux) viewer: fmt + clippy + build + test, plus the Linux-only
+  # indexer crate. pdfium is not needed — pdfium-render binds it at runtime, and
+  # the tests only exercise the DB loader / index parser, not page rendering.
+  linux:
+    name: Linux (viewer + indexer)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Build-time deps for the Slint winit/femtovg backend (fontconfig).
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libfontconfig-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: rustfmt (viewer)
+        run: cargo fmt --check
+      - name: clippy (viewer)
+        run: cargo clippy --all-targets -- -D warnings
+      - name: build (viewer)
+        run: cargo build --all-targets
+      - name: test (viewer)
+        run: cargo test
+
+      - name: rustfmt (indexer)
+        working-directory: indexer
+        run: cargo fmt --check
+      - name: clippy (indexer)
+        working-directory: indexer
+        run: cargo clippy --all-targets -- -D warnings
+      - name: build + test (indexer)
+        working-directory: indexer
+        run: cargo test
+
+  # Android: cross-compile the native cdylib for arm64-v8a via cargo-ndk. This
+  # is the meaningful compile check; gradle packaging/signing is done on-device
+  # (see docs/RELEASE_HOWTO.md) and is not reproduced here.
+  android:
+    name: Android (arm64-v8a .so)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Point cargo-ndk at the runner's NDK
+        run: echo "ANDROID_NDK_HOME=$ANDROID_NDK_LATEST_HOME" >> "$GITHUB_ENV"
+
+      - name: Install cargo-ndk
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-ndk
+
+      # Mirrors build_bundle.sh: Cargo.toml selects the android-activity backend
+      # for target_os = "android", so no extra --features is needed.
+      - name: Build Android library
+        run: cargo ndk -t arm64-v8a build --lib --release
