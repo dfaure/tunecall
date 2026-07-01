@@ -69,20 +69,22 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      # Slint's android-activity backend build.rs compiles a small Java helper
-      # and dexes it, so it needs an SDK platform (android.jar) + build-tools
-      # (d8) — not just the NDK. The runner ships the NDK but not these.
-      - uses: android-actions/setup-android@v3
-
-      - name: Install SDK platform + build-tools and verify on disk
+      # Slint's android-activity build.rs compiles a small Java helper and dexes
+      # it, using the `android-build` crate to locate android.jar / d8.jar. That
+      # crate honors the runner's preset ANDROID_PLATFORM / ANDROID_SDK_EXTENSION
+      # env, which resolve to a platform dir with no android.jar, so it fails
+      # with "No Android platforms found" — even though the SDK platforms are
+      # preinstalled. android_jar()/android_d8_jar() check ANDROID_JAR /
+      # ANDROID_D8_JAR first, so pin those to concrete files to bypass it.
+      - name: Pin android.jar / d8.jar for the Slint android build
         run: |
-          set -x
-          yes | sdkmanager --install "platforms;android-35" "build-tools;35.0.0"
-          echo "ANDROID_HOME=$ANDROID_HOME ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
-          ls -la "$ANDROID_HOME" || true
-          ls -la "$ANDROID_HOME/platforms" || true
-          find "$ANDROID_HOME" -name android.jar 2>/dev/null || true
-          find "$ANDROID_HOME" -path '*build-tools*d8.jar' 2>/dev/null || true
+          set -euo pipefail
+          jar=$(find "$ANDROID_HOME/platforms" -maxdepth 1 -type d -name 'android-*' ! -name '*-ext*' | sort -V | tail -1)/android.jar
+          d8=$(find "$ANDROID_HOME/build-tools" -path '*/lib/d8.jar' | sort -V | tail -1)
+          test -f "$jar"
+          test -f "$d8"
+          echo "ANDROID_JAR=$jar" >> "$GITHUB_ENV"
+          echo "ANDROID_D8_JAR=$d8" >> "$GITHUB_ENV"
 
       - name: Point cargo-ndk at the runner's NDK
         run: echo "ANDROID_NDK_HOME=$ANDROID_NDK_LATEST_HOME" >> "$GITHUB_ENV"
