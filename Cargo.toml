@@ -69,3 +69,25 @@ default = ["with-binary"]
 with-binary = []
 
 # Strip symbols on Android: see .cargo/config.toml
+
+# Local Slint checkout — used while testing fixes that aren't published yet
+# (currently a patched SlintAndroidJavaHelper.java that treats the display
+# cutout as unsafe area, so the camera notch can't hide a tab). Every Slint
+# workspace member that appears in our dep tree has to be redirected so we
+# don't mix the local 1.17.x with the crates.io 1.15.x; the lockfile picks
+# the local versions across the board.
+[patch.crates-io]
+slint = { path = "../slint/api/rs/slint" }
+slint-build = { path = "../slint/api/rs/build" }
+slint-macros = { path = "../slint/api/rs/macros" }
+i-slint-backend-selector = { path = "../slint/internal/backends/selector" }
+i-slint-backend-android-activity = { path = "../slint/internal/backends/android-activity" }
+i-slint-backend-winit = { path = "../slint/internal/backends/winit" }
+i-slint-backend-linuxkms = { path = "../slint/internal/backends/linuxkms" }
+i-slint-renderer-femtovg = { path = "../slint/internal/renderers/femtovg" }
+i-slint-renderer-skia = { path = "../slint/internal/renderers/skia" }
+i-slint-renderer-software = { path = "../slint/internal/renderers/software" }
+i-slint-core = { path = "../slint/internal/core" }
+i-slint-core-macros = { path = "../slint/internal/core-macros" }
+i-slint-common = { path = "../slint/internal/common" }
+i-slint-compiler = { path = "../slint/internal/compiler" }
