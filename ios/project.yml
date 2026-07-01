@@ -4,6 +4,12 @@
 # docs / the run steps). The pdfium dylib is fetched automatically at build
 # time if missing (see the "Embed pdfium dylib" phase), so no manual
 # `./fetch-pdfium.sh ios` step is required first.
+#
+# Signing is intentionally NOT configured here (this file is committed).
+# Simulator builds need no signing. For a device build, supply your team at
+# build time instead of committing it, e.g.:
+#   xcodebuild ... -destination 'generic/platform=iOS' -allowProvisioningUpdates \
+#     DEVELOPMENT_TEAM=XXXXXXXXXX CODE_SIGN_STYLE=Automatic
 name: TuneCall
 options:
   bundleIdPrefix: fr.davidfaure.tunecall
@@ -50,19 +56,30 @@ targets:
         script: |
           cd "$SRCROOT/.." && ./ios/build_for_ios_with_cargo.bash tunecall
         outputFileLists: $TARGET_BUILD_DIR/$EXECUTABLE_PATH
-      # Embed pdfium beside the executable (src/pdf.rs binds to it at runtime).
-      # It's git-ignored and produced by fetch-pdfium.sh, so fetch it if missing
-      # rather than silently shipping an app that can't render PDFs. A failed
-      # fetch (e.g. offline) aborts the build via `set -e` instead of leaving the
-      # dylib out. UNLOCALIZED_RESOURCES_FOLDER_PATH is the .app bundle root on
-      # iOS, i.e. right next to the executable.
+      # Embed pdfium in the bundle's Frameworks/ (src/pdf.rs binds to it there at
+      # runtime). It's git-ignored and produced by fetch-pdfium.sh, so fetch it if
+      # missing rather than silently shipping an app that can't render PDFs; a
+      # failed fetch (e.g. offline) aborts the build via `set -e`. The simulator
+      # and device need different Mach-O builds, picked here by PLATFORM_NAME. A
+      # physical device also rejects an unsigned embedded dylib, so device builds
+      # code-sign it with the app's identity (before Xcode seals the bundle).
       - name: Embed pdfium dylib
         script: |
           set -euo pipefail
-          if [ ! -f "$SRCROOT/libpdfium.dylib" ]; then
-            echo "note: libpdfium.dylib missing — running fetch-pdfium.sh ios"
-            "$SRCROOT/../fetch-pdfium.sh" ios
+          case "$PLATFORM_NAME" in
+            *simulator) VARIANT=simulator ;;
+            *)          VARIANT=device ;;
+          esac
+          DYLIB="$SRCROOT/libpdfium-$VARIANT.dylib"
+          if [ ! -f "$DYLIB" ]; then
+            echo "note: $(basename "$DYLIB") missing — running fetch-pdfium.sh ios-$VARIANT"
+            "$SRCROOT/../fetch-pdfium.sh" "ios-$VARIANT"
           fi
-          cp "$SRCROOT/libpdfium.dylib" "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/"
+          DEST="$TARGET_BUILD_DIR/$FRAMEWORKS_FOLDER_PATH"
+          mkdir -p "$DEST"
+          cp "$DYLIB" "$DEST/libpdfium.dylib"
+          if [ "$VARIANT" = device ] && [ "${CODE_SIGNING_ALLOWED:-YES}" != "NO" ] && [ -n "${EXPANDED_CODE_SIGN_IDENTITY:-}" ]; then
+            codesign --force --sign "$EXPANDED_CODE_SIGN_IDENTITY" "$DEST/libpdfium.dylib"
+          fi
         outputFiles:
-          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/libpdfium.dylib
+          - $(TARGET_BUILD_DIR)/$(FRAMEWORKS_FOLDER_PATH)/libpdfium.dylib

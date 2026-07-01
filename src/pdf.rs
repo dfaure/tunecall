@@ -32,17 +32,19 @@ fn with_pdfium<R>(f: impl FnOnce(&Pdfium) -> Result<R>) -> Result<R> {
 
 /// Directory to look for the pdfium shared library in. Everywhere except iOS
 /// this is the current directory (the loader also falls back to the system
-/// library); on iOS it's the app bundle directory that holds the executable,
-/// since that's the only place a sandboxed app can load an embedded dylib from.
+/// library); on iOS it's the app bundle's `Frameworks/` dir, since a sandboxed
+/// app can only load a dylib that's embedded — and code-signed — in its bundle,
+/// and `Frameworks/` is where embedded dylibs must live for a device to load them.
 fn pdfium_library_dir() -> String {
     #[cfg(target_os = "ios")]
     {
-        // `<App>.app/tunecall` -> `<App>.app/`, where the build copies the dylib.
+        // `<App>.app/tunecall` -> `<App>.app/Frameworks/`, where the build's
+        // "Embed pdfium dylib" phase copies (and, on device, signs) the dylib.
         if let Ok(exe) = std::env::current_exe()
             && let Some(dir) = exe.parent()
         {
             // pdfium_platform_library_name_at_path expects a trailing separator.
-            return format!("{}/", dir.display());
+            return format!("{}/Frameworks/", dir.display());
         }
     }
     "./".to_string()
