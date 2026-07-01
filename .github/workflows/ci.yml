@@ -73,8 +73,16 @@ jobs:
       # and dexes it, so it needs an SDK platform (android.jar) + build-tools
       # (d8) — not just the NDK. The runner ships the NDK but not these.
       - uses: android-actions/setup-android@v3
-        with:
-          packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
+
+      - name: Install SDK platform + build-tools and verify on disk
+        run: |
+          set -x
+          yes | sdkmanager --install "platforms;android-35" "build-tools;35.0.0"
+          echo "ANDROID_HOME=$ANDROID_HOME ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
+          ls -la "$ANDROID_HOME" || true
+          ls -la "$ANDROID_HOME/platforms" || true
+          find "$ANDROID_HOME" -name android.jar 2>/dev/null || true
+          find "$ANDROID_HOME" -path '*build-tools*d8.jar' 2>/dev/null || true
 
       - name: Point cargo-ndk at the runner's NDK
         run: echo "ANDROID_NDK_HOME=$ANDROID_NDK_LATEST_HOME" >> "$GITHUB_ENV"
