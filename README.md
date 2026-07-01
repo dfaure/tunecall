@@ -6,6 +6,26 @@ by song title and opens the matching book at the right page.
 
 The song index is produced offline by a separate tool, [`indexer/`](indexer/README.md).
 
+## Screenshots
+
+TuneCall is designed for tablets. Search a song across every book, open it at the
+right page, and organize your sets:
+
+<table>
+  <tr>
+    <td><img src="docs/screenshot-tablet-search.jpg" alt="Searching for a song" width="240"></td>
+    <td><img src="docs/screenshot-tablet-pdfviewer.jpg" alt="Viewing a page" width="240"></td>
+    <td><img src="docs/screenshot-tablet-setlists.jpg" alt="Setlists" width="240"></td>
+    <td><img src="docs/screenshot-tablet-setlist-edit.jpg" alt="Editing a setlist" width="240"></td>
+  </tr>
+  <tr>
+    <td align="center">Search</td>
+    <td align="center">Page viewer</td>
+    <td align="center">Setlists</td>
+    <td align="center">Editing a setlist</td>
+  </tr>
+</table>
+
 ## How it works
 
 - PDFs live in `<data-dir>/pdfs/`. On desktop `<data-dir>` is
