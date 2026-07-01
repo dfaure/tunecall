@@ -69,6 +69,13 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
+      # Slint's android-activity backend build.rs compiles a small Java helper
+      # and dexes it, so it needs an SDK platform (android.jar) + build-tools
+      # (d8) — not just the NDK. The runner ships the NDK but not these.
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
+
       - name: Point cargo-ndk at the runner's NDK
         run: echo "ANDROID_NDK_HOME=$ANDROID_NDK_LATEST_HOME" >> "$GITHUB_ENV"
 
