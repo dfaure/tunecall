@@ -490,6 +490,17 @@ export component AppWindow inherits Window {
         }
     }
 
+    // Slint drops focus when a tab is switched away (on purpose), so coming back
+    // to the Search tab leaves the search field un-focused — the user then has
+    // to tap it before the keyboard reappears. Restore focus on tab change so
+    // typing works straight away. The Setlists tab's leading TextField is
+    // handled in its own `if` block below (the ids aren't in scope here).
+    changed active-tab => {
+        if (root.active-tab == 0) {
+            searchField.focus();
+        }
+    }
+
     // Fill behind the system bars so their reserved strips show the app
     // background, not a gap left by the inset tab UI below.
     Rectangle {
@@ -573,6 +584,17 @@ export component AppWindow inherits Window {
                         padding: 8px;
                         spacing: 8px;
 
+                        // Local mirror of active-tab so we can watch it from a
+                        // `changed` handler in this scope: `newName` sits inside
+                        // this `if` block and isn't visible to a root-level
+                        // handler. Fires when the user switches back to this tab.
+                        property <int> tab-signal: root.active-tab;
+                        changed tab-signal => {
+                            if (self.tab-signal == 1) {
+                                newName.focus();
+                            }
+                        }
+
                         HorizontalLayout {
                             spacing: 8px;
                             newName := TextField {
@@ -648,6 +670,16 @@ export component AppWindow inherits Window {
                     if root.editing-index >= 0 : VerticalLayout {
                         padding: 8px;
                         spacing: 6px;
+
+                        // See the list-view branch: needed because editName lives
+                        // inside this `if` block and can't be reached from a
+                        // root-level `changed active-tab` handler.
+                        property <int> tab-signal: root.active-tab;
+                        changed tab-signal => {
+                            if (self.tab-signal == 1) {
+                                editName.focus();
+                            }
+                        }
 
                         HorizontalLayout {
                             vertical-stretch: 0;
