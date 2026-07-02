@@ -98,3 +98,37 @@ jobs:
       # for target_os = "android", so no extra --features is needed.
       - name: Build Android library
         run: cargo ndk -t arm64-v8a build --lib --release
+
+  ios:
+    name: iOS (simulator build + device compile)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios-sim, aarch64-apple-ios
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install xcodegen
+        run: brew install xcodegen
+
+      - name: clippy (iOS)
+        run: cargo clippy --target aarch64-apple-ios-sim --lib -- -D warnings
+
+      - name: Build device arch
+        run: cargo build --target aarch64-apple-ios --lib
+
+      # ARCHS is pinned to a concrete simulator arch: a `generic/platform=iOS
+      # Simulator` destination leaves $ARCHS as "undefined_arch" for a plain
+      # `build`, which build_for_ios_with_cargo.bash can't map to a cargo target.
+      - name: Xcode simulator build (unsigned)
+        working-directory: ios
+        run: |
+          xcodegen generate
+          xcodebuild -project TuneCall.xcodeproj -scheme TuneCall \
+            -sdk iphonesimulator -configuration Debug \
+            ARCHS=arm64 ONLY_ACTIVE_ARCH=NO \
+            CODE_SIGNING_ALLOWED=NO build
