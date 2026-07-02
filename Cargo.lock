@@ -5339,7 +5339,7 @@ dependencies = [
 
 [[package]]
 name = "tunecall"
-version = "1.0.6"
+version = "1.0.7"
 dependencies = [
  "anyhow",
  "async-compat",
@@ -6750,3 +6750,59 @@ dependencies = [
  "syn",
  "winnow",
 ]
+
+[[patch.unused]]
+name = "i-slint-backend-android-activity"
+version = "1.17.1"
+
+[[patch.unused]]
+name = "i-slint-backend-linuxkms"
+version = "1.17.1"
+
+[[patch.unused]]
+name = "i-slint-backend-selector"
+version = "1.17.1"
+
+[[patch.unused]]
+name = "i-slint-backend-winit"
+version = "1.17.1"
+
+[[patch.unused]]
+name = "i-slint-common"
+version = "1.17.1"
+
+[[patch.unused]]
+name = "i-slint-compiler"
+version = "1.17.1"
+
+[[patch.unused]]
+name = "i-slint-core"
+version = "1.17.1"
+
+[[patch.unused]]
+name = "i-slint-core-macros"
+version = "1.17.1"
+
+[[patch.unused]]
+name = "i-slint-renderer-femtovg"
+version = "1.17.1"
+
+[[patch.unused]]
+name = "i-slint-renderer-skia"
+version = "1.17.1"
+
+[[patch.unused]]
+name = "i-slint-renderer-software"
+version = "1.17.1"
+
+[[patch.unused]]
+name = "slint"
+version = "1.17.1"
+
+[[patch.unused]]
+name = "slint-build"
+version = "1.17.1"
+
+[[patch.unused]]
+name = "slint-macros"
+version = "1.17.1"
