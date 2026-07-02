@@ -536,6 +536,40 @@ pub fn tunecall_main() -> Result<(), Box<dyn Error>> {
         }
     });
 
+    // Tap a book row: open the book in the viewer, with the book's songs
+    // (sorted by page) as the nav list — Prev/Next-page flips within the PDF,
+    // Prev/Next-result jumps to the previous/next song in that book.
+    ui.on_open_book({
+        let ui_handle = ui.as_weak();
+        let library = library.clone();
+        let nav = nav.clone();
+        let viewer = viewer.clone();
+        let book_titles = book_titles.clone();
+        move |idx| {
+            let ui = ui_handle.unwrap();
+            let books = db::list_books();
+            let Some(book) = books.get(idx as usize) else {
+                return;
+            };
+            if !book.has_pdf {
+                return;
+            }
+            let mut songs: Vec<Song> = library
+                .borrow()
+                .iter()
+                .filter(|s| s.book.eq_ignore_ascii_case(&book.name))
+                .cloned()
+                .collect();
+            if songs.is_empty() {
+                return;
+            }
+            songs.sort_by_key(|s| s.page);
+            ui.set_viewer_add_mode(false);
+            *nav.borrow_mut() = songs;
+            open_result_at(&ui, &nav, &viewer, &book_titles, 0);
+        }
+    });
+
     ui.on_next_result({
         let ui_handle = ui.as_weak();
         let nav = nav.clone();
