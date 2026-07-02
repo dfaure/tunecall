@@ -130,6 +130,36 @@ fn set_idle_status(ui: &AppWindow, library: &Rc<RefCell<Vec<Song>>>) {
     }
 }
 
+/// iOS only: leave a `README.txt` in the (empty) Documents folder so it shows up
+/// in the Files app and tells the user what to put there. Skipped once any PDF
+/// is present, and never overwrites an existing README. Failures are logged only.
+#[cfg(target_os = "ios")]
+fn ensure_pdf_dir_readme(pdf_dir: &std::path::Path) {
+    let has_pdf = std::fs::read_dir(pdf_dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .any(|e| {
+            e.path()
+                .extension()
+                .and_then(|x| x.to_str())
+                .is_some_and(|x| x.eq_ignore_ascii_case("pdf"))
+        });
+    if has_pdf {
+        return;
+    }
+    let readme = pdf_dir.join("README.txt");
+    if !readme.exists()
+        && let Err(e) = std::fs::write(
+            &readme,
+            "Put your fake-book PDFs in this folder, then open TuneCall and tap \
+             Reload to fetch their song indexes.\n",
+        )
+    {
+        log::warn!("could not write {}: {e}", readme.display());
+    }
+}
+
 fn book_stem_from_path(path: &str) -> String {
     std::path::Path::new(path)
         .file_stem()
@@ -360,6 +390,11 @@ pub fn tunecall_main() -> Result<(), Box<dyn Error>> {
     if let Err(e) = std::fs::create_dir_all(&pdf_dir) {
         log::warn!("could not create {}: {e}", pdf_dir.display());
     }
+    // iOS: the books folder is the app's Documents dir, exposed to the Files app.
+    // Drop a note in it so it shows up (an empty app folder may not appear) and
+    // explains what it's for. No-op elsewhere.
+    #[cfg(target_os = "ios")]
+    ensure_pdf_dir_readme(&pdf_dir);
 
     // The whole library, and the current search results (clones, so a clicked
     // row maps straight back to its song).
@@ -395,8 +430,9 @@ pub fn tunecall_main() -> Result<(), Box<dyn Error>> {
         TAB_SEARCH
     });
 
-    // Install path shown on the Books tab so users always know where to drop
-    // their own PDFs over USB, even after Reload has populated the library.
+    // Folder to drop PDFs into, shown on the Books tab. The instruction wording
+    // lives in the UI (so it can be translated) and switches on Slint's built-in
+    // `Platform.os` to show the iOS Files-app phrasing vs the USB path.
     ui.set_pdf_dir(pdf_dir.display().to_string().into());
 
     // App name / version / build, for the Books-tab footer (handy in bug reports).
