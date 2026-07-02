@@ -377,6 +377,8 @@ export component AppWindow inherits Window {
 
     // --- books list (setup-time: which PDFs are indexed/supported) ---
     in property <[BookEntry]> book-list;
+    // Open an installed book in the viewer at page 1, for free-form paging.
+    callback open-book(int); // index into `book-list`
     // Filesystem path to drop PDFs into (reachable over USB). Always shown in the
     // Books tab so users can add books even after Reload populates the library.
     in property <string> pdf-dir;
@@ -803,8 +805,16 @@ export component AppWindow inherits Window {
                         vertical-stretch: 1;
                         mouse-drag-pan-enabled: true;
                         horizontal-scrollbar-policy: always-off;
-                        for book in root.book-list : ListRow {
+                        for book[idx] in root.book-list : ListRow {
                             width: booksList.viewport-width;
+                            // Tapping an installed book opens it in the viewer at
+                            // page 1 for free-form paging. Missing PDFs are a
+                            // no-op (nothing to render).
+                            clicked => {
+                                if (book.installed) {
+                                    root.open-book(idx);
+                                }
+                            }
                             // Title (from the index) on top, file stem underneath in
                             // gray. When the index carries no title, the stem is the
                             // only name we have, so it stands in as the main line.
