@@ -522,16 +522,34 @@ export component AppWindow inherits Window {
         height: root.height - root.safe-area-insets.top - root.safe-area-insets.bottom;
 
         VerticalLayout {
-            // Material top tab strip. The three tab bodies below are stacked and
-            // toggled by visibility (not `if`): keeping them all instantiated
-            // means searchField stays in scope for the focus handlers above.
-            TabBar {
-                current-index <=> root.active-tab;
-                items: [
-                    { text: "Search" },
-                    { text: "Setlists" },
-                    { text: "Books" },
-                ];
+            // Material top tab strip with the settings burger to its right, so
+            // the button doesn't cover the last tab (Books) — the TabBar splits
+            // its width evenly across items, and a floated button used to land
+            // on top of the rightmost one. The three tab bodies below are
+            // stacked and toggled by visibility (not `if`): keeping them all
+            // instantiated means searchField stays in scope for the focus
+            // handlers above.
+            HorizontalLayout {
+                TabBar {
+                    current-index <=> root.active-tab;
+                    horizontal-stretch: 1;
+                    items: [
+                        { text: "Search" },
+                        { text: "Setlists" },
+                        { text: "Books" },
+                    ];
+                }
+                // Center the fixed-size button vertically in the tab strip.
+                VerticalLayout {
+                    alignment: center;
+                    padding-left: 4px;
+                    padding-right: 4px;
+                    IconButton {
+                        commands: "M 3 7 L 21 7 M 3 12 L 21 12 M 3 17 L 21 17";
+                        filled: false;
+                        clicked => { root.menu-open = !root.menu-open; }
+                    }
+                }
             }
 
             Rectangle {
@@ -857,17 +875,6 @@ export component AppWindow inherits Window {
                 }
             }
         }
-    }
-
-    // Hamburger / settings button — floats in the tab-bar's top-right corner.
-    // Declared after the tab UI so it draws on top; declared before the viewer
-    // overlay so the viewer covers it when a song is open.
-    IconButton {
-        x: root.width - root.safe-area-insets.right - self.width - 4px;
-        y: root.safe-area-insets.top + 2px;
-        commands: "M 3 7 L 21 7 M 3 12 L 21 12 M 3 17 L 21 17";
-        filled: false;
-        clicked => { root.menu-open = !root.menu-open; }
     }
 
     // Viewer overlay (covers the whole window, tab bar included, when a song is
