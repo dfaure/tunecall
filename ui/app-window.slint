@@ -490,24 +490,6 @@ export component AppWindow inherits Window {
         }
     }
 
-    // Switching tabs hides the previous tab's content but does not drop focus
-    // from a LineEdit inside it. On Android the native text selection/caret
-    // handles are popups tied to the focused TextInput, so without a FocusOut
-    // they linger on top of the new tab. Clearing focus fires FocusOut, which
-    // hides the keyboard and those handles.
-    changed active-tab => {
-        tabFocusSink.focus();
-    }
-
-    // Always-present, zero-size focus target. Moving focus here on a tab change
-    // blurs whatever LineEdit held it (in any tab, including the conditional
-    // Setlists ones we can't reference by id from here), firing the FocusOut
-    // that hides the keyboard and its handles.
-    tabFocusSink := FocusScope {
-        width: 0px;
-        height: 0px;
-    }
-
     // Fill behind the system bars so their reserved strips show the app
     // background, not a gap left by the inset tab UI below.
     Rectangle {
