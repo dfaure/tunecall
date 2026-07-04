@@ -12,6 +12,7 @@ mod annotations;
 mod db;
 #[cfg(target_os = "android")]
 mod immersive;
+mod import;
 mod pdf;
 mod setlist;
 mod settings;
@@ -158,6 +159,98 @@ fn ensure_pdf_dir_readme(pdf_dir: &std::path::Path) {
     {
         log::warn!("could not write {}: {e}", readme.display());
     }
+}
+
+/// Best-effort read of recent own-process log lines from the Android crash
+/// buffer. Since API 16 an app can `logcat` its own process without any
+/// permission, and the crash buffer persists native aborts / uncaught JVM
+/// exceptions across restarts — the one place a viewer-side bug that killed
+/// the process might still be visible. Empty string when nothing is available
+/// (also on desktop), so the caller can hide the Copy button.
+fn read_logcat_crash_section() -> String {
+    #[cfg(target_os = "android")]
+    {
+        let Ok(out) = std::process::Command::new("logcat")
+            .args(["-d", "-b", "crash", "-t", "200"])
+            .output()
+        else {
+            return String::new();
+        };
+        if !out.status.success() {
+            return String::new();
+        }
+        let text = String::from_utf8_lossy(&out.stdout).into_owned();
+        if text.trim().is_empty() {
+            String::new()
+        } else {
+            format!("=== logcat crash buffer (last 200 lines) ===\n{text}")
+        }
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        String::new()
+    }
+}
+
+/// Read the tail (last `max_bytes`) of the most recent `.log` file in
+/// `data_dir()` for the "View log" menu item, with a small header naming the
+/// source path (so the user can find it over USB) and a friendly status when
+/// the log doesn't exist yet.
+fn read_file_log_section(max_bytes: u64) -> String {
+    use std::io::{Read, Seek, SeekFrom};
+
+    let dir = storage::data_dir();
+    let entries = match std::fs::read_dir(&dir) {
+        Ok(e) => e,
+        Err(e) => return format!("Cannot read {}: {e}", dir.display()),
+    };
+    let latest = entries
+        .flatten()
+        .filter(|e| {
+            e.file_name()
+                .to_string_lossy()
+                .to_ascii_lowercase()
+                .ends_with(".log")
+        })
+        .filter_map(|e| {
+            let modified = e.metadata().and_then(|m| m.modified()).ok()?;
+            Some((modified, e.path()))
+        })
+        .max_by_key(|(m, _)| *m)
+        .map(|(_, p)| p);
+    let Some(path) = latest else {
+        return "No file log yet. Turn on Debug logging in the menu, restart \
+                the app, then reproduce — the log will show up here."
+            .to_string();
+    };
+    let mut file = match std::fs::File::open(&path) {
+        Ok(f) => f,
+        Err(e) => return format!("Cannot open {}: {e}", path.display()),
+    };
+    let len = file.metadata().map(|m| m.len()).unwrap_or(0);
+    // Seek to a byte-boundary that yields at most `max_bytes` of tail.
+    let start = len.saturating_sub(max_bytes);
+    if start > 0 && file.seek(SeekFrom::Start(start)).is_err() {
+        return format!("Cannot seek in {}", path.display());
+    }
+    let mut buf = Vec::with_capacity(max_bytes as usize);
+    if let Err(e) = file.read_to_end(&mut buf) {
+        return format!("Cannot read {}: {e}", path.display());
+    }
+    // Truncate any leading partial line so the first shown row is complete.
+    let mut text = String::from_utf8_lossy(&buf).into_owned();
+    if start > 0
+        && let Some(nl) = text.find('\n')
+    {
+        text.drain(..=nl);
+    }
+    format!(
+        "=== file log ({}, last {} KiB) ===\n{}\n[{}]",
+        path.display(),
+        max_bytes / 1024,
+        text,
+        path.display()
+    )
 }
 
 fn book_stem_from_path(path: &str) -> String {
@@ -462,6 +555,11 @@ pub fn tunecall_main() -> Result<(), Box<dyn Error>> {
             log::warn!("saving settings failed: {e}");
         }
     });
+    // Menu > "View log" reads both sections independently so the two Copy
+    // buttons can grab just their own chunk. File-log tail is bounded so a
+    // long session doesn't wedge the UI trying to render megabytes of text.
+    ui.on_read_crash_log(|| read_logcat_crash_section().into());
+    ui.on_read_file_log(|| read_file_log_section(128 * 1024).into());
     ui.on_set_viewer_inverted({
         let ui_handle = ui.as_weak();
         let viewer = viewer.clone();
@@ -483,6 +581,65 @@ pub fn tunecall_main() -> Result<(), Box<dyn Error>> {
     // Android-only, a no-op elsewhere (the callback stays unconnected).
     #[cfg(target_os = "android")]
     ui.on_set_immersive(immersive::set);
+
+    // "Import from folder…" button (Books tab, Android only): the desktop has
+    // no SAF equivalent, so hide the button there.
+    ui.set_import_supported(cfg!(target_os = "android"));
+
+    // The refresh-installed callback runs after a SAF import: rescan the
+    // library, refresh titles / books / setlists, and land back on a normal
+    // idle status. Wired unconditionally so calling it from tests / a future
+    // desktop importer is a no-op instead of a panic.
+    ui.on_refresh_installed({
+        let ui_handle = ui.as_weak();
+        let library = library.clone();
+        let results = results.clone();
+        let setlists = setlists.clone();
+        let editing = editing.clone();
+        let book_titles = book_titles.clone();
+        move || {
+            let ui = ui_handle.unwrap();
+            results.borrow_mut().clear();
+            ui.set_results(empty_results());
+            reload_library(&ui, &library);
+            refresh_book_titles(&book_titles);
+            refresh_books(&ui);
+            refresh_setlists(&ui, &setlists);
+            refresh_editor(&ui, &setlists, &editing, &book_titles);
+        }
+    });
+
+    // Install the JNI import-completion hook (Android). Marshals from the
+    // Java copy thread onto the Slint event loop, then updates the status and
+    // refreshes the library. On desktop this whole block is dead code.
+    #[cfg(target_os = "android")]
+    {
+        let ui_weak = ui.as_weak();
+        import::set_on_imported(Box::new(move |count| {
+            let ui_weak = ui_weak.clone();
+            let _ = ui_weak.upgrade_in_event_loop(move |ui| {
+                let (msg, error) = match count {
+                    -1 => ("Import failed".to_string(), true),
+                    0 => ("No PDFs imported".to_string(), false),
+                    1 => ("Imported 1 PDF".to_string(), false),
+                    n => (format!("Imported {n} PDFs"), false),
+                };
+                ui.set_status_error(error);
+                ui.set_status(msg.into());
+                ui.invoke_refresh_installed();
+            });
+        }));
+    }
+
+    ui.on_import_folder(|| {
+        #[cfg(target_os = "android")]
+        {
+            match immersive::app() {
+                Some(app) => import::launch_folder_picker(app),
+                None => log::warn!("import: AndroidApp handle not stashed yet"),
+            }
+        }
+    });
 
     ui.on_search({
         let ui_handle = ui.as_weak();

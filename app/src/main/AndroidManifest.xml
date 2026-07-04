@@ -26,6 +26,15 @@
 
             <meta-data android:name="android.app.lib_name" android:value="tunecall" />
         </activity>
+
+        <!-- Translucent trampoline for the Books-tab "Import from folder…"
+             button. Launches ACTION_OPEN_DOCUMENT_TREE, copies the picked PDFs
+             into pdf_dir, and finishes. NativeActivity can't easily receive
+             onActivityResult, so this helper handles the SAF flow. -->
+        <activity
+            android:name="com.tunecall.app.Import"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            android:exported="false" />
     </application>
 
 </manifest>

@@ -22,6 +22,13 @@ pub fn init(app: slint::android::AndroidApp) {
     let _ = APP.set(app);
 }
 
+/// The stashed handle, for other Android-only JNI helpers (e.g. the SAF import
+/// trampoline). `None` before [`init`] runs — impossible in practice on Android
+/// but a helper that wants to call JNI still has to handle it.
+pub fn app() -> Option<&'static slint::android::AndroidApp> {
+    APP.get()
+}
+
 /// Enter (`true`) or leave (`false`) immersive fullscreen. Errors are logged,
 /// not propagated: failing to toggle a bar must never take down the viewer.
 pub fn set(enabled: bool) {

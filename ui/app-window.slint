@@ -374,6 +374,9 @@ export component AppWindow inherits Window {
     callback search(string);
     callback open-result(int); // index into `results`
     callback reload();
+    // Local rescan (no network): rebuilds the library and Books-tab state after
+    // a SAF import lands new PDFs. Fired from the JNI callback.
+    callback refresh-installed();
 
     // --- books list (setup-time: which PDFs are indexed/supported) ---
     in property <[BookEntry]> book-list;
@@ -385,6 +388,10 @@ export component AppWindow inherits Window {
     // (and its raw sandbox path is meaningless, so it isn't shown there); elsewhere
     // it's a USB-reachable filesystem path.
     in property <string> pdf-dir;
+    // Whether the "Import from folder…" button applies here. Android-only: SAF
+    // has no equivalent on desktop.
+    in property <bool> import-supported;
+    callback import-folder();
     in property <string> about; // app name, version and build (footer of the Books tab)
     // Opt-in debug logging (Books tab). Reflects the saved setting; the callback
     // persists a change. Takes effect on the next app launch.
@@ -395,6 +402,18 @@ export component AppWindow inherits Window {
     // find the file (over USB) without parking the path on the Books screen.
     in property <string> log-dir;
     property <bool> show-log-info;
+    // Full-window log viewer for on-device debugging (menu > "View log"). The
+    // menu item populates the two section properties then flips this to true.
+    // Kept as two properties (crash-buffer + file log) so their Copy buttons
+    // can grab just their own chunk — needed because Slint's Android text
+    // selection is limited: handles don't extend inside a scrolling parent.
+    property <bool> show-log-viewer;
+    property <string> log-crash;
+    property <string> log-file;
+    // Empty when the section is unavailable (no crash entries, or file log
+    // disabled), so the caller can hide the section's Copy button.
+    callback read-crash-log() -> string;
+    callback read-file-log() -> string;
     property <bool> menu-open: false;
     // Reverse-color (white-on-black) rendering of the PDF page. Only affects
     // the viewer's page image; the rest of the app follows the system theme.
@@ -790,6 +809,10 @@ export component AppWindow inherits Window {
                             font-weight: 700;
                             vertical-alignment: center;
                             horizontal-stretch: 1;
+                        }
+                        if root.import-supported : TonalButton {
+                            text: "Import";
+                            clicked => { root.import-folder(); }
                         }
                         TonalButton {
                             text: "Reload";
@@ -1408,6 +1431,111 @@ export component AppWindow inherits Window {
                         root.set-file-logging(root.file-logging);
                         if (root.file-logging) { root.show-log-info = true; }
                     }
+                }
+                MenuItem {
+                    text: "View log";
+                    clicked => {
+                        root.log-crash = root.read-crash-log();
+                        root.log-file = root.read-file-log();
+                        root.show-log-viewer = true;
+                        root.menu-open = false;
+                    }
+                }
+            }
+        }
+    }
+
+    // Full-window scrollable log viewer. Kept last so it draws over every other
+    // overlay (including the menu and the PDF viewer). Two Copy buttons — one
+    // per section — because Slint's Android text-selection handles don't
+    // extend inside a Flickable, so per-section clipboard export is the only
+    // reliable way to pull just the interesting chunk into a bug report.
+    if root.show-log-viewer : Rectangle {
+        width: root.width;
+        height: root.height;
+        background: MaterialPalette.background;
+
+        // Hidden TextInputs holding only one section each, driven by the
+        // matching Copy button (select-all + copy). Not shown to the user;
+        // exist purely to route each chunk to the platform clipboard without
+        // disturbing the combined view above.
+        crash-clip := TextInput {
+            width: 0;
+            height: 0;
+            visible: false;
+            text: root.log-crash;
+            read-only: true;
+            single-line: false;
+        }
+        file-clip := TextInput {
+            width: 0;
+            height: 0;
+            visible: false;
+            text: root.log-file;
+            read-only: true;
+            single-line: false;
+        }
+
+        VerticalLayout {
+            padding-top: root.safe-area-insets.top;
+            padding-bottom: root.safe-area-insets.bottom;
+            padding-left: root.safe-area-insets.left;
+            padding-right: root.safe-area-insets.right;
+            HorizontalLayout {
+                padding: 8px;
+                spacing: 8px;
+                Text {
+                    text: "Log";
+                    font-weight: 700;
+                    font-size: 18px;
+                    vertical-alignment: center;
+                    horizontal-stretch: 1;
+                }
+                if root.log-crash != "" : TonalButton {
+                    text: "Copy crash";
+                    clicked => {
+                        crash-clip.select-all();
+                        crash-clip.copy();
+                    }
+                }
+                if root.log-file != "" : TonalButton {
+                    text: "Copy file";
+                    clicked => {
+                        file-clip.select-all();
+                        file-clip.copy();
+                    }
+                }
+                TonalButton {
+                    text: "Close";
+                    clicked => { root.show-log-viewer = false; }
+                }
+            }
+            // Flickable + read-only TextInput instead of TextEdit: TextEdit's
+            // inner ScrollView doesn't expose `mouse-drag-pan-enabled`, so
+            // touch dragging doesn't scroll on Android. Flickable is
+            // interactive by default; TextInput still shows selection feedback
+            // on long-press, though handle-drag extension is broken inside a
+            // Flickable — hence the chunked Copy buttons above.
+            Flickable {
+                vertical-stretch: 1;
+                viewport-width: self.width;
+                viewport-height: log-view.preferred-height;
+                log-view := TextInput {
+                    x: 8px;
+                    width: parent.width - 16px;
+                    text: root.log-crash != ""
+                        ? (root.log-file != "" ? root.log-crash + "\n\n" + root.log-file : root.log-crash)
+                        : root.log-file;
+                    read-only: true;
+                    single-line: false;
+                    wrap: word-wrap;
+                    // Monospace: log lines align by columns; a proportional
+                    // font makes timestamps and levels ragged.
+                    font-family: "monospace";
+                    font-size: 12px;
+                    color: MaterialPalette.on-surface;
+                    selection-background-color: MaterialPalette.primary;
+                    selection-foreground-color: MaterialPalette.on-primary;
                 }
             }
         }
