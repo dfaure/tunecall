@@ -830,10 +830,15 @@ export component AppWindow inherits Window {
                     // Always-visible installation instructions. PDFs aren't
                     // shipped, so even when Reload has populated the library the
                     // user still needs to know where to drop additional books.
+                    // On Android both routes are mentioned — Import (SAF folder
+                    // picker) is the convenient one, USB stays as a fallback
+                    // for users who already have the PDFs on a computer.
                     Text {
                         text: Platform.os == OperatingSystemType.ios
                             ? "To add PDFs: open the Files app → On My iPad/iPhone → TuneCall, or connect to a Mac (Finder → device → Files → TuneCall). Then tap Reload."
-                            : "To add a PDF, copy it via USB to:\n\{root.pdf-dir}";
+                            : root.import-supported
+                                ? "To add PDFs: tap Import to copy them in from a folder on this device, or over USB into:\n\{root.pdf-dir}"
+                                : "To add a PDF, copy it to:\n\{root.pdf-dir}";
                         color: gray;
                         font-size: 16px;
                         wrap: word-wrap;
