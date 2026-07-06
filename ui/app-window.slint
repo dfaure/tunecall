@@ -69,6 +69,10 @@ component IconButton inherits Rectangle {
     // When true, the button paints with the accent background so a toggled-on
     // mode (e.g. add-text / move-annotation) is visually obvious.
     in property <bool> checked: false;
+    // When true, the button renders as a bare clickable glyph — no background,
+    // no border. For icons that should read as an image, not a control (e.g.
+    // the settings burger in the top strip).
+    in property <bool> flat: false;
     // Defaults to the palette foreground (adapts to dark mode). Callers that
     // sit on a fixed-color surface (e.g. an annotation over the white PDF page)
     // can override this so the glyph stays readable.
@@ -78,9 +82,9 @@ component IconButton inherits Rectangle {
     width: 44px;
     height: 36px;
     border-radius: 4px;
-    border-width: 1px;
+    border-width: root.flat ? 0px : 1px;
     border-color: MaterialPalette.on-surface.with-alpha(0.13);
-    background: root.checked ? MaterialPalette.primary : !root.enabled ? MaterialPalette.on-surface.with-alpha(0.03) : ta.pressed ? MaterialPalette.on-surface.with-alpha(0.15) : ta.has-hover ? MaterialPalette.on-surface.with-alpha(0.08) : MaterialPalette.on-surface.with-alpha(0.04);
+    background: root.flat ? transparent : root.checked ? MaterialPalette.primary : !root.enabled ? MaterialPalette.on-surface.with-alpha(0.03) : ta.pressed ? MaterialPalette.on-surface.with-alpha(0.15) : ta.has-hover ? MaterialPalette.on-surface.with-alpha(0.08) : MaterialPalette.on-surface.with-alpha(0.04);
     opacity: root.enabled ? 1.0 : 0.35;
 
     ta := TouchArea {
@@ -566,6 +570,7 @@ export component AppWindow inherits Window {
                     IconButton {
                         commands: "M 3 7 L 21 7 M 3 12 L 21 12 M 3 17 L 21 17";
                         filled: false;
+                        flat: true;
                         clicked => { root.menu-open = !root.menu-open; }
                     }
                 }
@@ -995,6 +1000,7 @@ export component AppWindow inherits Window {
                 IconButton {
                     commands: "M 3 7 L 21 7 M 3 12 L 21 12 M 3 17 L 21 17";
                     filled: false;
+                    flat: true;
                     clicked => { root.menu-open = !root.menu-open; }
                 }
             }
