@@ -1195,6 +1195,21 @@ pub fn tunecall_main() -> Result<(), Box<dyn Error>> {
         }
     });
 
+    // First-launch UX: with no indexes present yet, fetch them automatically so
+    // the Books tab lands on a populated list of real book names instead of a
+    // bare "tap Reload" prompt. Deferred via a zero-delay timer so the event
+    // loop is running by the time on_reload's spawn_local fires. Failures show
+    // in the status line the same way a manual Reload would, so offline first
+    // launch is visibly diagnosed rather than looking broken.
+    if db::list_books().is_empty() {
+        let ui_weak = ui.as_weak();
+        slint::Timer::single_shot(std::time::Duration::ZERO, move || {
+            if let Some(ui) = ui_weak.upgrade() {
+                ui.invoke_reload();
+            }
+        });
+    }
+
     log::debug!("calling run");
     ui.run()?;
     Ok(())
