@@ -500,8 +500,10 @@ export component AppWindow inherits Window {
     callback set-immersive(bool);
 
     // On Android the search field keeps focus while the viewer covers it, so its
-    // text caret/selection handles bleed through over the PDF. Drop focus while
-    // the viewer is up and restore it (only on the Search tab) when we return.
+    // text caret/selection handles bleed through over the PDF. Move focus onto
+    // root-key-scope while the viewer is up — that both hides the caret and
+    // makes root-key-scope's capture-key-pressed catch the Android back button
+    // (an empty focus chain would drop the event and exit the app instead).
     changed viewer-visible => {
         root.set-immersive(root.viewer-visible);
         if (root.viewer-visible) {
@@ -509,7 +511,7 @@ export component AppWindow inherits Window {
             // hide is an explicit center tap, and shouldn't carry over from the
             // previous viewing session.
             root.toolbar-shown = true;
-            searchField.clear-focus();
+            root-key-scope.focus();
         } else if (root.active-tab == 0) {
             searchField.focus();
         }
@@ -525,6 +527,50 @@ export component AppWindow inherits Window {
             searchField.focus();
         }
     }
+
+    // Editor open/close: the enter transition destroys the setlist list's
+    // `newName` field (which held focus), and Slint clears focus when the
+    // focused item goes invisible. An empty focus chain means Android's back
+    // button falls through to the OS (exit the app), so grab focus onto
+    // root-key-scope so its capture-key-pressed handler still catches Back.
+    changed editing-index => {
+        if (root.editing-index >= 0) {
+            root-key-scope.focus();
+        }
+    }
+
+    forward-focus: root-key-scope;
+
+    // Wrap every AppWindow child in one FocusScope so the Android back button
+    // is caught anywhere in the app (the scope must be an ancestor of the
+    // focused item — a sibling wouldn't see events that bubble from a focused
+    // TextField). Slint's TextInput ignores keys in the Unicode private-use
+    // area (where Key.Back lives), so Back bubbles up here even while an input
+    // is focused; capture-key-pressed also fires during the top-down capture
+    // phase, catching events before any descendant can consume them.
+    // `forward-focus: root-key-scope` above makes this the initial focus so
+    // Back works before the user taps anything.
+    root-key-scope := FocusScope {
+        width: 100%;
+        height: 100%;
+        // Back handling, in priority order:
+        //   1. Viewer open → close viewer (regardless of source tab).
+        //   2. Setlist editor open → close editor (like the Close button).
+        // Anything else falls through to the OS (default: exit the app),
+        // preserving the pre-existing behavior for the tab UI.
+        capture-key-pressed(event) => {
+            if (event.text == Key.Back) {
+                if (root.viewer-visible) {
+                    root.close-viewer();
+                    return accept;
+                }
+                if (root.editing-index >= 0) {
+                    root.close-setlist-editor();
+                    return accept;
+                }
+            }
+            reject
+        }
 
     // Fill behind the system bars so their reserved strips show the app
     // background, not a gap left by the inset tab UI below.
@@ -1550,5 +1596,6 @@ export component AppWindow inherits Window {
                 }
             }
         }
+    }
     }
 }
