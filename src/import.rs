@@ -16,17 +16,21 @@
 //! sync source). Nothing here compiles on desktop — the Books-tab button is
 //! hidden there via `import-supported`.
 
+#[cfg(target_os = "android")]
 use std::sync::Mutex;
 
 /// Fired when the Java helper finishes the copy. Argument is the number of
 /// PDFs successfully imported (or `-1` on picker/launch failure).
+#[cfg(target_os = "android")]
 type Callback = Box<dyn Fn(i32) + Send + 'static>;
 
+#[cfg(target_os = "android")]
 static ON_IMPORTED: Mutex<Option<Callback>> = Mutex::new(None);
 
 /// Install the callback fired when the SAF import finishes. Called once from
 /// startup with a closure that hops to the Slint event loop and refreshes the
 /// library.
+#[cfg(target_os = "android")]
 pub fn set_on_imported(cb: Callback) {
     *ON_IMPORTED.lock().unwrap() = Some(cb);
 }
