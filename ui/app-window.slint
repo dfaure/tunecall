@@ -1558,14 +1558,14 @@ export component AppWindow inherits Window {
                     horizontal-stretch: 1;
                 }
                 if root.log-crash != "" : TonalButton {
-                    text: "Copy crash";
+                    text: "Copy crash log";
                     clicked => {
                         crash-clip.select-all();
                         crash-clip.copy();
                     }
                 }
                 if root.log-file != "" : TonalButton {
-                    text: "Copy file";
+                    text: "Copy file log";
                     clicked => {
                         file-clip.select-all();
                         file-clip.copy();
