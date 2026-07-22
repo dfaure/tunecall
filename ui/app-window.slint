@@ -1471,7 +1471,9 @@ export component AppWindow inherits Window {
             drop-shadow-blur: 12px;
             drop-shadow-color: #00000030;
             border-width: 1px;
-            border-color: #0000001a;
+            // Palette-driven so it stays visible in dark mode (a fixed
+            // near-transparent black is invisible on a dark background).
+            border-color: MaterialPalette.on-surface.with-alpha(0.2);
             // Swallow touches on the panel background so they don't reach the scrim.
             TouchArea { }
             menu-vl := VerticalLayout {
