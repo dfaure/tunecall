@@ -27,6 +27,7 @@ public final class Immersive {
         });
     }
 
+    @SuppressWarnings("deprecation") // setSystemUiVisibility + SYSTEM_UI_FLAG_* are the pre-R fallback (minSdk 28).
     private static void apply(Activity activity, boolean enabled) {
         View decor = activity.getWindow().getDecorView();
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
