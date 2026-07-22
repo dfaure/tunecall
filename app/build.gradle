@@ -56,7 +56,7 @@ android {
         applicationId = "com.tunecall.app"
         minSdk = 28
         targetSdk = 36
-        versionCode = 14
+        versionCode = 15
         versionName = cargoVersion
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
