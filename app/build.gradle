@@ -27,7 +27,7 @@ def cargoVersion = {
 
 android {
     ndkVersion = "25.2.9519653"
-    compileSdk = 35
+    compileSdk = 36
 
     applicationVariants.all { variant ->
         variant.outputs.all { output ->
@@ -55,7 +55,7 @@ android {
     defaultConfig {
         applicationId = "com.tunecall.app"
         minSdk = 28
-        targetSdk = 35
+        targetSdk = 36
         versionCode = 14
         versionName = cargoVersion
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
