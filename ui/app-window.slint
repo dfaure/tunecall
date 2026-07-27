@@ -505,11 +505,14 @@ export component AppWindow inherits Window {
         root.set-immersive(root.want-immersive);
     }
 
-    // On Android the search field keeps focus while the viewer covers it, so its
-    // text caret/selection handles bleed through over the PDF. Move focus onto
-    // root-key-scope while the viewer is up — that both hides the caret and
-    // makes root-key-scope's capture-key-pressed catch the Android back button
-    // (an empty focus chain would drop the event and exit the app instead).
+    // On Android the search field would keep focus while the viewer covers it,
+    // and its text caret/selection handles would bleed through over the PDF;
+    // the `visible: !root.viewer-visible` binding on the tab UI Rectangle below
+    // hides the whole search subtree while the viewer is up, and Slint drops
+    // focus from any item that becomes invisible — so the caret is gone with no
+    // manual clear here. The `root-key-scope.focus()` below is only to keep the
+    // focus chain non-empty so capture-key-pressed catches the Android back
+    // button (an empty focus chain would drop the event and exit the app).
     changed viewer-visible => {
         // Reset chrome visibility on every transition: a freshly opened viewer
         // always starts with chrome visible (the hide is an explicit center tap,
@@ -591,7 +594,12 @@ export component AppWindow inherits Window {
     // Unlike the viewer (which goes fullscreen), the tabs are an interactive
     // browsing surface, so we reserve the bar space rather than draw behind it.
     // Insets are 0 on desktop and where a bar autohides.
+    // Hidden while the viewer overlay is up: this makes searchField invisible
+    // so Slint auto-drops focus from it — the Android caret/selection handles
+    // (native popups tied to the focused TextInput) go away with no imperative
+    // clear-focus call.
     Rectangle {
+        visible: !root.viewer-visible;
         x: root.safe-area-insets.left;
         y: root.safe-area-insets.top;
         width: root.width - root.safe-area-insets.left - root.safe-area-insets.right;
