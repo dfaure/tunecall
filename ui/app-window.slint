@@ -233,17 +233,22 @@ component ResultRow {
     }
 }
 
-// The setlist being edited: its songs with reorder/remove controls. Factored
-// out of the editor so the same pane can sit in a side-by-side column (wide
-// screens) or stacked on top (narrow screens) without duplicating its content.
+// The songs of the setlist currently open. When `editable`, shows reorder /
+// remove controls and the section title (so the twin AddSongsColumn's title
+// balances it); when not, it's the readonly "songs view" you get by tapping a
+// setlist — same rows, no controls, and a row tap plays that song.
 component SetlistColumn inherits VerticalLayout {
     in property <[SetlistSongEntry]> songs;
+    in property <bool> editable: true;
+    callback play-song(int);
     callback move-up(int);
     callback move-down(int);
     callback remove(int);
 
     spacing: 4px;
-    Text {
+    // Only shown in the two-column editor; in the readonly view the header
+    // above already names the setlist, so this would just repeat.
+    if root.editable : Text {
         text: "In this setlist";
         font-weight: 700;
     }
@@ -253,6 +258,10 @@ component SetlistColumn inherits VerticalLayout {
         horizontal-scrollbar-policy: always-off;
         for song[i] in root.songs : ListRow {
             width: list.viewport-width;
+            // Tapping the row plays the song with the setlist as the nav list.
+            // The reorder/remove buttons sit on top and grab their own clicks,
+            // so they still work without triggering this.
+            clicked => { root.play-song(i); }
             VerticalLayout {
                 horizontal-stretch: 1;
                 spacing: 2px;
@@ -271,7 +280,7 @@ component SetlistColumn inherits VerticalLayout {
             }
             // Reorder/remove grouped tightly so they read as one control
             // cluster for this row.
-            HorizontalLayout {
+            if root.editable : HorizontalLayout {
                 spacing: 2px;
                 IconButton {
                     commands: "M 12 7 L 19 17 L 5 17 Z";
@@ -427,7 +436,12 @@ export component AppWindow inherits Window {
 
     // --- setlists ---
     in property <[SetlistEntry]> setlists;
-    in property <int> editing-index: -1; // -1 = list view, >=0 = editing that setlist
+    // -1 = list of setlists; >=0 = a setlist is open (either the readonly songs
+    // view or the full editor, distinguished by `setlist-editing`).
+    in property <int> editing-index: -1;
+    // false = readonly songs view (tap a song to play it); true = full editor
+    // with reorder/remove and the add-song search column.
+    in-out property <bool> setlist-editing: false;
     in property <string> editing-name; // name of the setlist being edited
     in property <[SetlistSongEntry]> editing-songs;
     in property <[SongResult]> add-results; // search hits while adding songs
@@ -439,9 +453,12 @@ export component AppWindow inherits Window {
     // index, with its name held alongside for the prompt.
     property <int> confirm-delete-index: -1;
     property <string> confirm-delete-name;
-    callback edit-setlist(int); // enter the editor
+    callback edit-setlist(int); // open the setlist (readonly songs view)
+    callback setlist-start-editing(); // switch open setlist from readonly to editor
     callback close-setlist-editor();
-    callback play-setlist(int); // open the setlist in the viewer
+    // Play a song of the currently open setlist (works from the readonly songs
+    // view and from the editor), with the setlist as the viewer's nav list.
+    callback setlist-play-at(int);
     callback setlist-add-search(string);
     callback setlist-add-song(int); // index into `add-results`
     callback preview-song(int); // preview `add-results[i]` in the viewer before adding
@@ -565,13 +582,18 @@ export component AppWindow inherits Window {
         height: 100%;
         // Back handling, in priority order:
         //   1. Viewer open → close viewer (regardless of source tab).
-        //   2. Setlist editor open → close editor (like the Close button).
+        //   2. Setlist editor mode → drop back to the readonly songs view.
+        //   3. Setlist songs view → close it (back to the list of setlists).
         // Anything else falls through to the OS (default: exit the app),
         // preserving the pre-existing behavior for the tab UI.
         capture-key-pressed(event) => {
             if (event.text == Key.Back) {
                 if (root.viewer-visible) {
                     root.close-viewer();
+                    return accept;
+                }
+                if (root.editing-index >= 0 && root.setlist-editing) {
+                    root.setlist-editing = false;
                     return accept;
                 }
                 if (root.editing-index >= 0) {
@@ -726,14 +748,11 @@ export component AppWindow inherits Window {
                             horizontal-scrollbar-policy: always-off;
                             for s[idx] in root.setlists : ListRow {
                                 width: setlistsList.viewport-width;
-                                // Tapping a non-empty setlist plays it; Edit/Delete
-                                // stay as explicit buttons. An empty one can't play,
-                                // so its row tap is a no-op (use Edit to add songs).
-                                clicked => {
-                                    if (s.song-count > 0) {
-                                        root.play-setlist(idx);
-                                    }
-                                }
+                                // Tapping a setlist opens its (readonly) songs
+                                // view; from there the user can play a song by
+                                // tapping it, or hit Edit to add / reorder /
+                                // remove. Plays no longer start automatically.
+                                clicked => { root.edit-setlist(idx); }
                                 VerticalLayout {
                                     horizontal-stretch: 1;
                                     spacing: 2px;
@@ -751,13 +770,6 @@ export component AppWindow inherits Window {
                                 VerticalLayout {
                                     alignment: center;
                                     TonalButton {
-                                        text: "Edit";
-                                        clicked => { root.edit-setlist(idx); }
-                                    }
-                                }
-                                VerticalLayout {
-                                    alignment: center;
-                                    TonalButton {
                                         text: "Delete";
                                         clicked => {
                                             root.confirm-delete-name = s.name;
@@ -769,37 +781,66 @@ export component AppWindow inherits Window {
                         }
                     }
 
-                    // Editor view: rename/close on top, then two columns — the
-                    // setlist (reorder/remove) on the left, a live song search with
-                    // preview/add on the right (Mobile Sheets style).
+                    // An open setlist has two modes:
+                    //   * readonly songs view (the default when the user taps a
+                    //     setlist row) — the songs, tappable to play, plus Edit
+                    //     and Close;
+                    //   * full editor (Edit was tapped) — editable name, the
+                    //     setlist column with reorder/remove, and the add-song
+                    //     search alongside. Done drops back to the songs view;
+                    //     Close (in the songs view) returns to the list.
                     if root.editing-index >= 0 : VerticalLayout {
                         padding: 8px;
                         spacing: 6px;
 
-                        // See the list-view branch: needed because editName lives
-                        // inside this `if` block and can't be reached from a
-                        // root-level `changed active-tab` handler.
-                        property <int> tab-signal: root.active-tab;
-                        changed tab-signal => {
-                            if (self.tab-signal == 1) {
-                                editName.focus();
-                            }
-                        }
-
+                        // Header row. Layout stays constant (name area + one or
+                        // two trailing buttons) — the pieces just swap between
+                        // modes.
                         HorizontalLayout {
                             vertical-stretch: 0;
                             spacing: 8px;
+                            if !root.setlist-editing : Text {
+                                text: root.editing-name;
+                                font-weight: 700;
+                                font-size: 22px;
+                                vertical-alignment: center;
+                                horizontal-stretch: 1;
+                                overflow: elide;
+                            }
                             // The name applies live as you type (no separate Rename
                             // button to forget). Rust skips empty input, so clearing
                             // the field to retype never wipes the stored name; it also
                             // doesn't write the name back here, so the caret is stable.
-                            editName := TextField {
+                            // `init` fires when the field is instantiated (i.e. every
+                            // time we enter edit mode), so focus lands here instead
+                            // of leaving the user tapping to summon the keyboard.
+                            if root.setlist-editing : TextField {
+                                init => { self.focus(); }
                                 label: "Setlist name";
                                 text: root.editing-name;
                                 horizontal-stretch: 1;
                                 edited(text) => { root.rename-setlist(root.editing-index, text); }
                             }
-                            VerticalLayout {
+                            if !root.setlist-editing : VerticalLayout {
+                                alignment: center;
+                                TonalButton {
+                                    text: "Edit";
+                                    clicked => { root.setlist-start-editing(); }
+                                }
+                            }
+                            if root.setlist-editing : VerticalLayout {
+                                alignment: center;
+                                TonalButton {
+                                    // Leaves the editor; the setlist stays open in
+                                    // the readonly songs view. Back to the list of
+                                    // setlists is one more Close from there (or the
+                                    // Android back button, which follows the same
+                                    // two-step unwind).
+                                    text: "Done";
+                                    clicked => { root.setlist-editing = false; }
+                                }
+                            }
+                            if !root.setlist-editing : VerticalLayout {
                                 alignment: center;
                                 TonalButton {
                                     text: "Close";
@@ -808,16 +849,25 @@ export component AppWindow inherits Window {
                             }
                         }
 
-                        // Wide (tablet): setlist and add-search side by side. Narrow
-                        // (phone): stacked, setlist on top and add-search below — a
-                        // horizontal split below ~700px squeezes each pane so thin
-                        // that every title wraps one character per line.
-                        if root.width >= 700px : HorizontalLayout {
+                        // Readonly songs view: just the setlist, tappable rows.
+                        if !root.setlist-editing : SetlistColumn {
+                            vertical-stretch: 1;
+                            songs: root.editing-songs;
+                            editable: false;
+                            play-song(i) => { root.setlist-play-at(i); }
+                        }
+
+                        // Editor: setlist + add-song search. Wide (tablet) side
+                        // by side, narrow (phone) stacked — a horizontal split
+                        // below ~700px squeezes each pane so thin that every
+                        // title wraps one character per line.
+                        if root.setlist-editing && root.width >= 700px : HorizontalLayout {
                             vertical-stretch: 1;
                             spacing: 12px;
                             SetlistColumn {
                                 horizontal-stretch: 1;
                                 songs: root.editing-songs;
+                                play-song(i) => { root.setlist-play-at(i); }
                                 move-up(i) => { root.setlist-move-up(i); }
                                 move-down(i) => { root.setlist-move-down(i); }
                                 remove(i) => { root.setlist-remove-song(i); }
@@ -831,7 +881,7 @@ export component AppWindow inherits Window {
                                 add(i) => { root.setlist-add-song(i); }
                             }
                         }
-                        if root.width < 700px : VerticalLayout {
+                        if root.setlist-editing && root.width < 700px : VerticalLayout {
                             vertical-stretch: 1;
                             spacing: 8px;
                             // Give the add-search pane twice the height of the setlist
@@ -841,6 +891,7 @@ export component AppWindow inherits Window {
                             SetlistColumn {
                                 vertical-stretch: 1;
                                 songs: root.editing-songs;
+                                play-song(i) => { root.setlist-play-at(i); }
                                 move-up(i) => { root.setlist-move-up(i); }
                                 move-down(i) => { root.setlist-move-down(i); }
                                 remove(i) => { root.setlist-remove-song(i); }

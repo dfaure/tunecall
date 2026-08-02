@@ -979,6 +979,10 @@ pub fn tunecall_main() -> Result<(), Box<dyn Error>> {
         }
     });
 
+    // Opens the setlist in the (readonly) songs view. The full editor with
+    // reorder/remove and add-song search is one Edit-button tap further —
+    // see `on_setlist_start_editing` below. Both paths land on the same
+    // `editing` slot; the `setlist-editing` UI flag distinguishes them.
     ui.on_edit_setlist({
         let ui_handle = ui.as_weak();
         let setlists = setlists.clone();
@@ -988,9 +992,26 @@ pub fn tunecall_main() -> Result<(), Box<dyn Error>> {
         move |idx| {
             let ui = ui_handle.unwrap();
             *editing.borrow_mut() = Some(idx as usize);
+            // Start in the readonly songs view, even if the previous open
+            // setlist was closed while in edit mode.
+            ui.set_setlist_editing(false);
             add_hits.borrow_mut().clear();
             ui.set_add_results(empty_results());
             refresh_editor(&ui, &setlists, &editing, &book_titles);
+        }
+    });
+
+    // "Edit" button inside the songs view: switch to the full editor. The add
+    // search starts empty — stale results from a previous edit session would be
+    // confusing next to a different setlist's songs.
+    ui.on_setlist_start_editing({
+        let ui_handle = ui.as_weak();
+        let add_hits = add_hits.clone();
+        move || {
+            let ui = ui_handle.unwrap();
+            add_hits.borrow_mut().clear();
+            ui.set_add_results(empty_results());
+            ui.set_setlist_editing(true);
         }
     });
 
@@ -1002,21 +1023,31 @@ pub fn tunecall_main() -> Result<(), Box<dyn Error>> {
         move || {
             let ui = ui_handle.unwrap();
             *editing.borrow_mut() = None;
+            // Reset for the next setlist opened.
+            ui.set_setlist_editing(false);
             refresh_editor(&ui, &setlists, &editing, &book_titles);
         }
     });
 
-    ui.on_play_setlist({
+    // Play a song of the currently-open setlist (works from the readonly songs
+    // view and from the editor). The whole setlist becomes the viewer's nav
+    // list, so Prev/Next-result step through it in order from wherever we
+    // started.
+    ui.on_setlist_play_at({
         let ui_handle = ui.as_weak();
         let setlists = setlists.clone();
+        let editing = editing.clone();
         let nav = nav.clone();
         let viewer = viewer.clone();
         let book_titles = book_titles.clone();
-        move |idx| {
+        move |song_idx| {
             let ui = ui_handle.unwrap();
+            let Some(idx) = *editing.borrow() else {
+                return;
+            };
             let songs: Vec<Song> = {
                 let lists = setlists.borrow();
-                let Some(sl) = lists.get(idx as usize) else {
+                let Some(sl) = lists.get(idx) else {
                     return;
                 };
                 sl.songs
@@ -1032,10 +1063,11 @@ pub fn tunecall_main() -> Result<(), Box<dyn Error>> {
             if songs.is_empty() {
                 return;
             }
+            let start = (song_idx as usize).min(songs.len() - 1);
             // Playing an existing setlist, not building one: hide the Add button.
             ui.set_viewer_add_mode(false);
             *nav.borrow_mut() = songs;
-            open_result_at(&ui, &nav, &viewer, &book_titles, 0);
+            open_result_at(&ui, &nav, &viewer, &book_titles, start);
         }
     });
 
