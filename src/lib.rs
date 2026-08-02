@@ -263,16 +263,30 @@ fn book_stem_from_path(path: &str) -> String {
 
 fn load_and_set_annotations(ui: &AppWindow, state: &ViewerState) {
     let stem = book_stem_from_path(&state.path);
-    let items: Vec<AnnotationItem> = annotations::load(&stem, state.page)
-        .into_iter()
-        .map(|a| AnnotationItem {
-            id: a.id as i32,
-            x: a.x,
-            y: a.y,
-            text: a.text.into(),
-        })
-        .collect();
-    ui.set_page_annotations(Rc::new(VecModel::from(items)).into());
+    let all = annotations::load(&stem, state.page);
+    // Split by kind into two Slint models so the overlay's two `for` loops each
+    // render the shape they know how to draw, without conditionals per row.
+    let mut texts: Vec<AnnotationItem> = Vec::new();
+    let mut rects: Vec<RectangleItem> = Vec::new();
+    for a in all {
+        match a.kind {
+            annotations::AnnotationKind::Text => texts.push(AnnotationItem {
+                id: a.id as i32,
+                x: a.x,
+                y: a.y,
+                text: a.text.into(),
+            }),
+            annotations::AnnotationKind::Rect => rects.push(RectangleItem {
+                id: a.id as i32,
+                x: a.x,
+                y: a.y,
+                w: a.w,
+                h: a.h,
+            }),
+        }
+    }
+    ui.set_page_annotations(Rc::new(VecModel::from(texts)).into());
+    ui.set_page_rectangles(Rc::new(VecModel::from(rects)).into());
 }
 
 /// Render the page described by `state` into the viewer, at the width it was
@@ -771,8 +785,23 @@ pub fn tunecall_main() -> Result<(), Box<dyn Error>> {
             let slot = viewer.borrow();
             let Some(state) = slot.as_ref() else { return };
             let stem = book_stem_from_path(&state.path);
-            if let Err(e) = annotations::save(&stem, state.page, x, y, &text) {
+            if let Err(e) = annotations::save_text(&stem, state.page, x, y, &text) {
                 log::warn!("saving annotation failed: {e}");
+            }
+            load_and_set_annotations(&ui, state);
+        }
+    });
+
+    ui.on_save_rectangle({
+        let ui_handle = ui.as_weak();
+        let viewer = viewer.clone();
+        move |x, y, w, h| {
+            let ui = ui_handle.unwrap();
+            let slot = viewer.borrow();
+            let Some(state) = slot.as_ref() else { return };
+            let stem = book_stem_from_path(&state.path);
+            if let Err(e) = annotations::save_rect(&stem, state.page, x, y, w, h) {
+                log::warn!("saving rectangle failed: {e}");
             }
             load_and_set_annotations(&ui, state);
         }
@@ -1223,6 +1252,7 @@ pub fn tunecall_main() -> Result<(), Box<dyn Error>> {
             ui.set_viewer_visible(false);
             ui.set_page_image(Image::default());
             ui.set_page_annotations(Rc::new(VecModel::<AnnotationItem>::default()).into());
+            ui.set_page_rectangles(Rc::new(VecModel::<RectangleItem>::default()).into());
             *viewer.borrow_mut() = None;
         }
     });

@@ -43,6 +43,18 @@ struct AnnotationItem {
     text: string,
 }
 
+// A user-drawn opaque rectangle covering part of the scan (used to hide clutter
+// or a wrong printed number). Shares the annotations DB and its move/delete
+// callbacks with AnnotationItem; separate model so the overlay can render the
+// two shapes without conditionals in a single `for`.
+struct RectangleItem {
+    id: int,  // DB rowid
+    x: float, // top-left, normalized 0.0–1.0
+    y: float,
+    w: float, // size, normalized 0.0–1.0
+    h: float,
+}
+
 // Hairline dividers. HSeparator is a horizontal line (full width, 1px tall) for
 // separating stacked rows; VSeparator is a vertical line (1px wide, full height)
 // for separating side-by-side columns. Each leaves the other dimension to fill,
@@ -497,15 +509,21 @@ export component AppWindow inherits Window {
     callback next-result();
     property <bool> edit-mode: false;
     property <bool> adding-text: false;
+    // Drag on the page to draw an opaque white rectangle (a "cover"); the three
+    // insertion modes are mutually exclusive — flipping one clears the others.
+    property <bool> adding-rect: false;
     property <bool> moving-annotations: false;
     in-out property <[AnnotationItem]> page-annotations;
+    in-out property <[RectangleItem]> page-rectangles;
     property <float> pending-ann-x;
     property <float> pending-ann-y;
     property <string> annotation-text;
     property <bool> annotation-dialog-open: false;
     callback save-annotation(float, float, string);
+    // x, y (top-left), w, h — all normalized to the page.
+    callback save-rectangle(float, float, float, float);
     callback move-annotation(int, float, float); // rowid, new-x, new-y (normalized)
-    callback delete-annotation(int);             // rowid
+    callback delete-annotation(int);             // rowid (works for both shapes)
     // Top-row visibility inside the viewer. A center tap toggles it (along with
     // the bottom page badge) so the page fills the screen while playing.
     property <bool> toolbar-shown: true;
@@ -1065,6 +1083,19 @@ export component AppWindow inherits Window {
                     checked: root.adding-text;
                     clicked => {
                         root.adding-text = !root.adding-text;
+                        root.adding-rect = false;
+                        root.moving-annotations = false;
+                    }
+                }
+                if root.edit-mode : IconButton {
+                    // Outlined rectangle — drag on the page to hide a region
+                    // with an opaque cover (e.g. a wrong printed page number).
+                    commands: "M 4 5 L 20 5 L 20 19 L 4 19 Z";
+                    filled: false;
+                    checked: root.adding-rect;
+                    clicked => {
+                        root.adding-rect = !root.adding-rect;
+                        root.adding-text = false;
                         root.moving-annotations = false;
                     }
                 }
@@ -1075,6 +1106,7 @@ export component AppWindow inherits Window {
                     clicked => {
                         root.moving-annotations = !root.moving-annotations;
                         root.adding-text = false;
+                        root.adding-rect = false;
                     }
                 }
                 TonalButton {
@@ -1082,6 +1114,7 @@ export component AppWindow inherits Window {
                     clicked => {
                         root.edit-mode = !root.edit-mode;
                         root.adding-text = false;
+                        root.adding-rect = false;
                         root.moving-annotations = false;
                     }
                 }
@@ -1102,6 +1135,7 @@ export component AppWindow inherits Window {
                     clicked => {
                         root.edit-mode = false;
                         root.adding-text = false;
+                        root.adding-rect = false;
                         root.moving-annotations = false;
                         root.close-viewer();
                     }
@@ -1136,6 +1170,16 @@ export component AppWindow inherits Window {
                 property <float> start-zoom: 1.0;
                 property <length> start-pan-x;
                 property <length> start-pan-y;
+
+                // Drag-to-draw a cover rectangle while `adding-rect` is on.
+                // Coords are normalized to the page (0.0–1.0), so a live preview
+                // and the eventual `save-rectangle` call don't have to convert
+                // between screen pixels and page space at two different points.
+                property <bool> rect-drafting: false;
+                property <float> draft-x1;
+                property <float> draft-y1;
+                property <float> draft-x2;
+                property <float> draft-y2;
 
                 // The bottom badge covers the last line of music on some scans,
                 // so it auto-hides a few seconds after the page changes and is
@@ -1223,12 +1267,39 @@ export component AppWindow inherits Window {
                         }
                         changed pressed => {
                             if (self.pressed) {
-                                self.press-pan-x = root.viewer-pan-x;
-                                self.press-pan-y = root.viewer-pan-y;
+                                if (root.adding-rect) {
+                                    pageArea.draft-x1 = (self.pressed-x - root.viewer-pan-x) / 1px / (pageArea.width * root.viewer-zoom / 1px);
+                                    pageArea.draft-y1 = (self.pressed-y - root.viewer-pan-y) / 1px / (pageArea.height * root.viewer-zoom / 1px);
+                                    pageArea.draft-x2 = pageArea.draft-x1;
+                                    pageArea.draft-y2 = pageArea.draft-y1;
+                                    pageArea.rect-drafting = true;
+                                } else {
+                                    self.press-pan-x = root.viewer-pan-x;
+                                    self.press-pan-y = root.viewer-pan-y;
+                                }
+                            } else if (pageArea.rect-drafting) {
+                                pageArea.rect-drafting = false;
+                                // Commit only if the draft covers something —
+                                // a stray micro-drag shouldn't sprinkle 1×1
+                                // covers over the page. `adding-rect` stays on
+                                // so the user can draw several in a row
+                                // without re-tapping the toolbar; they exit
+                                // via the toolbar button when done.
+                                if (Math.abs(pageArea.draft-x2 - pageArea.draft-x1) > 0.01
+                                    && Math.abs(pageArea.draft-y2 - pageArea.draft-y1) > 0.01) {
+                                    root.save-rectangle(
+                                        min(pageArea.draft-x1, pageArea.draft-x2),
+                                        min(pageArea.draft-y1, pageArea.draft-y2),
+                                        Math.abs(pageArea.draft-x2 - pageArea.draft-x1),
+                                        Math.abs(pageArea.draft-y2 - pageArea.draft-y1));
+                                }
                             }
                         }
                         moved => {
-                            if (root.viewer-zoom > 1.0) {
+                            if (pageArea.rect-drafting) {
+                                pageArea.draft-x2 = (self.mouse-x - root.viewer-pan-x) / 1px / (pageArea.width * root.viewer-zoom / 1px);
+                                pageArea.draft-y2 = (self.mouse-y - root.viewer-pan-y) / 1px / (pageArea.height * root.viewer-zoom / 1px);
+                            } else if (root.viewer-zoom > 1.0) {
                                 root.viewer-pan-x = self.press-pan-x + (self.mouse-x - self.pressed-x);
                                 root.viewer-pan-y = self.press-pan-y + (self.mouse-y - self.pressed-y);
                                 pageArea.clamp-pan();
@@ -1242,6 +1313,10 @@ export component AppWindow inherits Window {
                                     root.annotation-text = "";
                                     root.annotation-dialog-open = true;
                                     root.adding-text = false;
+                                } else if (root.adding-rect) {
+                                    // Bare tap in draw mode: no rect (needs a
+                                    // drag). Swallow it so a stray tap doesn't
+                                    // flip pages / toggle chrome.
                                 } else if (self.pressed-x < self.width * 20% && root.page-number > 1) {
                                     root.prev-page();
                                 } else if (self.pressed-x > self.width * 80% && root.page-number < root.page-count) {
@@ -1259,6 +1334,11 @@ export component AppWindow inherits Window {
                             }
                         }
                         double-clicked => {
+                            if (root.adding-rect) {
+                                // A quick two-tap sequence while drawing must not
+                                // suddenly zoom the page underneath the user.
+                                return;
+                            }
                             // Middle 60% only: a double-tap on an edge zone is
                             // two page flips, not a zoom toggle.
                             if (self.pressed-x >= self.width * 20% && self.pressed-x <= self.width * 80%) {
@@ -1278,6 +1358,63 @@ export component AppWindow inherits Window {
                                 return accept;
                             }
                             reject
+                        }
+                    }
+
+                    // Cover rectangles — drawn before text annotations so a
+                    // label positioned inside a cover still reads on top of
+                    // it. Fill tracks the viewer's inverted mode so the cover
+                    // blends into whatever "paper" color is showing.
+                    for rect in root.page-rectangles : Rectangle {
+                        property <length> drag-dx: 0px;
+                        property <length> drag-dy: 0px;
+
+                        x: root.viewer-pan-x + rect.x * pageArea.width * root.viewer-zoom + self.drag-dx;
+                        y: root.viewer-pan-y + rect.y * pageArea.height * root.viewer-zoom + self.drag-dy;
+                        width: rect.w * pageArea.width * root.viewer-zoom;
+                        height: rect.h * pageArea.height * root.viewer-zoom;
+                        background: root.viewer-inverted ? black : white;
+                        border-radius: root.moving-annotations ? 3px : 0px;
+                        border-width: root.moving-annotations ? 1px : 0px;
+                        border-color: #0d47a1;
+
+                        rect-drag := TouchArea {
+                            enabled: root.moving-annotations;
+                            mouse-cursor: root.moving-annotations ? MouseCursor.move : MouseCursor.default;
+                            // Same accumulate-drag pattern as text annotations:
+                            // the parent moves with drag-{dx,dy}, so mouse-x and
+                            // pressed-x sit in different frames after each frame
+                            // — sum the per-frame delta.
+                            moved => {
+                                parent.drag-dx += self.mouse-x - self.pressed-x;
+                                parent.drag-dy += self.mouse-y - self.pressed-y;
+                            }
+                            changed pressed => {
+                                if (!self.pressed) {
+                                    if (Math.abs(parent.drag-dx / 1px) > 4 || Math.abs(parent.drag-dy / 1px) > 4) {
+                                        root.move-annotation(
+                                            rect.id,
+                                            rect.x + parent.drag-dx / 1px / (pageArea.width * root.viewer-zoom / 1px),
+                                            rect.y + parent.drag-dy / 1px / (pageArea.height * root.viewer-zoom / 1px));
+                                    }
+                                    parent.drag-dx = 0px;
+                                    parent.drag-dy = 0px;
+                                }
+                            }
+                        }
+                        // Delete cross, only in move mode. Positioned in the
+                        // top-right corner so it doesn't overlap the interesting
+                        // covered area. Red so it's obvious against either
+                        // white or black fill.
+                        if root.moving-annotations : IconButton {
+                            x: parent.width - self.width - 2px;
+                            y: 2px;
+                            width: 26px;
+                            height: 22px;
+                            commands: "M 7 7 L 17 17 M 7 17 L 17 7";
+                            filled: false;
+                            icon-color: #b71c1c;
+                            clicked => { root.delete-annotation(rect.id); }
                         }
                     }
 
@@ -1353,6 +1490,20 @@ export component AppWindow inherits Window {
                                 }
                             }
                         }
+                    }
+
+                    // Live preview of the rect being drawn. Semi-transparent so
+                    // the region underneath is visible while sizing, plus a
+                    // blue outline so a nearly-square selection reads as a
+                    // rectangle in progress.
+                    if pageArea.rect-drafting : Rectangle {
+                        x: root.viewer-pan-x + min(pageArea.draft-x1, pageArea.draft-x2) * pageArea.width * root.viewer-zoom;
+                        y: root.viewer-pan-y + min(pageArea.draft-y1, pageArea.draft-y2) * pageArea.height * root.viewer-zoom;
+                        width: Math.abs(pageArea.draft-x2 - pageArea.draft-x1) * pageArea.width * root.viewer-zoom;
+                        height: Math.abs(pageArea.draft-y2 - pageArea.draft-y1) * pageArea.height * root.viewer-zoom;
+                        background: root.viewer-inverted ? #000000c0 : #ffffffc0;
+                        border-width: 1.5px;
+                        border-color: #0d47a1;
                     }
                 }
 
