@@ -84,5 +84,9 @@ android {
 }
 
 dependencies {
-
+    // Only for androidx.core.content.FileProvider, used by Share.java to
+    // hand an internal PDF file to Intent.ACTION_SEND (file:// URIs are
+    // blocked from being shared on API 24+, so a content:// URI via
+    // FileProvider is the supported route).
+    implementation 'androidx.core:core:1.13.1'
 }

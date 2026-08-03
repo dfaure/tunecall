@@ -16,6 +16,7 @@ mod import;
 mod pdf;
 mod setlist;
 mod settings;
+mod share;
 mod storage;
 mod sync;
 
@@ -289,6 +290,46 @@ fn load_and_set_annotations(ui: &AppWindow, state: &ViewerState) {
     ui.set_page_rectangles(Rc::new(VecModel::from(rects)).into());
 }
 
+/// Sanitized filename base for the shared PDF. Strips filesystem-hostile
+/// characters (Windows/Android reject `\/:*?"<>|` and control chars in file
+/// names), trims wrapping whitespace and dots, and caps the length so a
+/// pathological title can't produce a filename longer than most filesystems
+/// accept. Falls back to `"shared"` when there's nothing usable left.
+fn sanitize_filename(s: &str) -> String {
+    let cleaned: String = s
+        .chars()
+        .map(|c| match c {
+            '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
+            c if c.is_control() => '_',
+            c => c,
+        })
+        .collect();
+    let trimmed = cleaned.trim().trim_matches('.').trim();
+    let out: String = trimmed.chars().take(100).collect();
+    if out.is_empty() {
+        "shared".to_string()
+    } else {
+        out
+    }
+}
+
+/// Where the exporter writes a PDF to be handed to the share sheet.
+/// Android: the app-private `getFilesDir()/share`, matching the FileProvider
+/// entry in `res/xml/filepaths.xml` (any other path would fail to resolve to
+/// a content:// URI). Elsewhere: the OS temp dir — no share sheet exists on
+/// desktop, but writing the file makes the export path testable.
+fn share_dir() -> std::path::PathBuf {
+    #[cfg(target_os = "android")]
+    {
+        if let Some(app) = crate::immersive::app()
+            && let Some(p) = app.internal_data_path()
+        {
+            return p.join("share");
+        }
+    }
+    std::env::temp_dir().join("tunecall").join("share")
+}
+
 /// Render the page described by `state` into the viewer, at the width it was
 /// last rasterized at — so flipping pages while zoomed in (e.g. to crop the
 /// margins) keeps both the zoom and its sharpness. The inverted-colors setting
@@ -297,6 +338,9 @@ fn show_page(ui: &AppWindow, state: &ViewerState) {
     ui.set_viewer_error("".into());
     ui.set_page_number(state.page as i32 + 1);
     ui.set_page_count(state.count as i32);
+    // Number of pages left from here (inclusive), so the share dialog's spinbox
+    // can't offer to grab more than the PDF has.
+    ui.set_share_max_pages(state.count.saturating_sub(state.page).max(1) as i32);
     load_and_set_annotations(ui, state);
     let inverted = ui.get_viewer_inverted();
     match pdf::render_page(&state.path, state.page, state.render_width, inverted) {
@@ -599,6 +643,10 @@ pub fn tunecall_main() -> Result<(), Box<dyn Error>> {
     // "Import from folder…" button (Books tab, Android only): the desktop has
     // no SAF equivalent, so hide the button there.
     ui.set_import_supported(cfg!(target_os = "android"));
+
+    // The Share button (viewer toolbar) needs a platform share sheet, which we
+    // only bind on Android — hide it elsewhere so the button doesn't dangle.
+    ui.set_share_supported(cfg!(target_os = "android"));
 
     // The refresh-installed callback runs after a SAF import: rescan the
     // library, refresh titles / books / setlists, and land back on a normal
@@ -1159,6 +1207,80 @@ pub fn tunecall_main() -> Result<(), Box<dyn Error>> {
             ui.set_viewer_add_mode(true);
             *nav.borrow_mut() = add_hits.borrow().clone();
             open_result_at(&ui, &nav, &viewer, &book_titles, ri as usize);
+        }
+    });
+
+    // Share the current song: export the current page (plus the next N-1 pages
+    // if the user asked for more) into a small standalone PDF and hand it to
+    // Android's share sheet. Filename is `<song title> - <book>.pdf` when both
+    // are known, sanitized for filesystem use.
+    ui.on_share_song({
+        let ui_handle = ui.as_weak();
+        let viewer = viewer.clone();
+        let nav = nav.clone();
+        let book_titles = book_titles.clone();
+        move |count| {
+            let ui = ui_handle.unwrap();
+            let Some((path, page, result_idx)) = viewer
+                .borrow()
+                .as_ref()
+                .map(|s| (s.path.clone(), s.page, s.result_idx))
+            else {
+                return;
+            };
+            let song = nav.borrow().get(result_idx).cloned();
+            let (song_title, book_stem) = song
+                .as_ref()
+                .map(|s| (s.title.clone(), s.book.clone()))
+                .unwrap_or_default();
+            let book_label = book_label(&book_titles.borrow(), &book_stem);
+            let base = if song_title.is_empty() && book_label.is_empty() {
+                format!("page-{}", page + 1)
+            } else if book_label.is_empty() {
+                song_title.clone()
+            } else if song_title.is_empty() {
+                book_label.clone()
+            } else {
+                format!("{song_title} - {book_label}")
+            };
+            let filename = format!("{}.pdf", sanitize_filename(&base));
+
+            let dir = share_dir();
+            if let Err(e) = std::fs::create_dir_all(&dir) {
+                log::warn!("share: create_dir_all({}) failed: {e}", dir.display());
+                ui.set_viewer_error(format!("Cannot prepare share folder: {e}").into());
+                return;
+            }
+            // One share at a time — wipe leftovers so the app's private dir
+            // can't accumulate every PDF the user ever shared.
+            if let Ok(entries) = std::fs::read_dir(&dir) {
+                for e in entries.flatten() {
+                    let _ = std::fs::remove_file(e.path());
+                }
+            }
+            let dest = dir.join(&filename);
+            let count_u16 = count.clamp(1, u16::MAX as i32) as u16;
+            if let Err(e) = pdf::export_pages(&path, page, count_u16, &dest) {
+                log::warn!("share: export_pages failed: {e:?}");
+                ui.set_viewer_error(format!("Export failed: {e}").into());
+                return;
+            }
+            #[cfg(target_os = "android")]
+            {
+                let subject = if song_title.is_empty() {
+                    book_label.clone()
+                } else {
+                    song_title.clone()
+                };
+                if let Err(e) = share::share_pdf(&dest, &subject) {
+                    log::warn!("share: launch failed: {e:?}");
+                    ui.set_viewer_error(format!("Share failed: {e}").into());
+                }
+            }
+            #[cfg(not(target_os = "android"))]
+            {
+                log::info!("shared PDF written to {}", dest.display());
+            }
         }
     });
 

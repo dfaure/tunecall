@@ -34,6 +34,21 @@
             android:name="com.tunecall.app.Import"
             android:theme="@android:style/Theme.Translucent.NoTitleBar"
             android:exported="false" />
+
+        <!-- Backing content:// provider for the viewer's Share button. The PDF
+             exporter writes into getFilesDir()/share and Share.java wraps that
+             file in a FileProvider URI so ACTION_SEND can grant read access to
+             the chosen target (file:// URIs are blocked from being shared on
+             API 24+). filepaths.xml declares which subdir is exposed. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="com.tunecall.app.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/filepaths" />
+        </provider>
     </application>
 
 </manifest>

@@ -495,6 +495,17 @@ export component AppWindow inherits Window {
     in property <bool> viewer-add-mode;
     in property <bool> viewer-added;
     callback viewer-add-song();
+    // Share the current song as a PDF (1..N consecutive pages starting at the
+    // current page) via the platform's share sheet. Hidden on non-Android
+    // since Slint offers no cross-platform share API; the toolbar button is
+    // gated on `share-supported`. `share-max-pages` is the number of pages
+    // between the current one and the end of the PDF — the dialog's spinbox
+    // clamps to it (a two-page share on the last page falls back to one).
+    in property <bool> share-supported;
+    in property <int> share-max-pages: 1;
+    property <bool> share-dialog-open: false;
+    property <int> share-page-count: 1;
+    callback share-song(int);
     // Zoom state (pinch / ctrl+wheel / double-tap). 1.0 = fit the page area;
     // the pan offsets are the zoomed page's position inside it (always <= 0).
     // Page flips keep the zoom (a margin crop survives across pages); Rust
@@ -1128,6 +1139,19 @@ export component AppWindow inherits Window {
                     enabled: !root.viewer-added;
                     clicked => { root.viewer-add-song(); }
                 }
+                if root.share-supported : IconButton {
+                    // Android share glyph: three dots connected by two lines.
+                    // Two Path elements, so the outer IconButton draws them as
+                    // one — dots on the outside as full circles, lines between.
+                    commands: "M 18 4 A 3 3 0 1 1 12 4 A 3 3 0 1 1 18 4 Z"
+                        + " M 8 15 A 3 3 0 1 1 2 15 A 3 3 0 1 1 8 15 Z"
+                        + " M 22 20 A 3 3 0 1 1 16 20 A 3 3 0 1 1 22 20 Z"
+                        + " M 7.6 13.5 L 13.4 6 M 13.4 17 L 7.6 16.5";
+                    clicked => {
+                        root.share-page-count = 1;
+                        root.share-dialog-open = true;
+                    }
+                }
                 TonalButton {
                     text: "Close";
                     // Reset edit state too — next song open shouldn't inherit
@@ -1605,6 +1629,65 @@ export component AppWindow inherits Window {
                             root.annotation-text = "";
                         }
                     }
+                }
+            }
+        }
+    }
+
+    // "How many pages to share?" dialog. A tiny custom spinbox — just two
+    // IconButtons and a Text — matches the app's control style and avoids
+    // pulling in std-widgets' SpinBox. Clamped to 1..share-max-pages so the
+    // user can't request more pages than the PDF has from here.
+    if root.share-dialog-open : MessageBox {
+        dismissed => { root.share-dialog-open = false; }
+        Text {
+            text: "Share how many pages?";
+            font-weight: 700;
+            horizontal-alignment: center;
+        }
+        HorizontalLayout {
+            alignment: center;
+            spacing: 8px;
+            IconButton {
+                // Minus sign — decrement.
+                commands: "M 5 11 L 19 11 L 19 13 L 5 13 Z";
+                enabled: root.share-page-count > 1;
+                clicked => {
+                    root.share-page-count = max(1, root.share-page-count - 1);
+                }
+            }
+            Rectangle {
+                width: 60px;
+                Text {
+                    text: root.share-page-count;
+                    font-size: 22px;
+                    font-weight: 700;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+            IconButton {
+                // Plus sign — increment (up to what the PDF still has from here).
+                commands: "M 11 5 L 13 5 L 13 11 L 19 11 L 19 13 L 13 13 L 13 19 L 11 19 L 11 13 L 5 13 L 5 11 L 11 11 Z";
+                enabled: root.share-page-count < root.share-max-pages;
+                clicked => {
+                    root.share-page-count = min(root.share-max-pages, root.share-page-count + 1);
+                }
+            }
+        }
+        HorizontalLayout {
+            spacing: 8px;
+            TonalButton {
+                text: "Cancel";
+                horizontal-stretch: 1;
+                clicked => { root.share-dialog-open = false; }
+            }
+            FilledButton {
+                text: "Share";
+                horizontal-stretch: 1;
+                clicked => {
+                    root.share-song(root.share-page-count);
+                    root.share-dialog-open = false;
                 }
             }
         }

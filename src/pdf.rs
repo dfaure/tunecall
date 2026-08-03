@@ -4,6 +4,7 @@
 //! how to obtain it on each platform.
 
 use std::cell::RefCell;
+use std::path::Path;
 
 use anyhow::{Result, anyhow};
 use pdfium_render::prelude::*;
@@ -55,6 +56,35 @@ pub fn page_count(path: &str) -> Result<u16> {
     with_pdfium(|pdfium| {
         let doc = pdfium.load_pdf_from_file(path, None)?;
         Ok(doc.pages().len())
+    })
+}
+
+/// Copy `count` consecutive pages starting at 0-based `first` from `src` into a
+/// fresh PDF written to `dest`. Preserves the original page bytes (no
+/// re-rasterization), so the output is small and stays sharp. Clamps `count` to
+/// the pages actually available so a "share 2 pages" on the last page still
+/// produces a 1-page file rather than an error.
+pub fn export_pages(src: &str, first: u16, count: u16, dest: &Path) -> Result<()> {
+    with_pdfium(|pdfium| {
+        let source = pdfium.load_pdf_from_file(src, None)?;
+        let total = source.pages().len();
+        if first >= total {
+            return Err(anyhow!(
+                "first page {first} is out of range (document has {total} pages)"
+            ));
+        }
+        // At least one page — a 0-count request would produce an empty PDF
+        // that most readers reject as malformed.
+        let want = count.max(1);
+        let available = total - first;
+        let take = want.min(available);
+        let last = first + take - 1;
+
+        let mut out = pdfium.create_new_pdf()?;
+        out.pages_mut()
+            .copy_page_range_from_document(&source, first..=last, 0)?;
+        out.save_to_file(dest)?;
+        Ok(())
     })
 }
 

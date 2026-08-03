@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Paths exposed by com.tunecall.app.fileprovider (see AndroidManifest.xml).
+     Only getFilesDir()/share is shared — the exporter writes one PDF at a
+     time in there, and nothing else the app owns needs sharing. -->
+<paths>
+    <files-path name="shared" path="share/" />
+</paths>
